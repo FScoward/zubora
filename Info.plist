@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>com.fscoward.zubora</string>
+    <key>CFBundleName</key>
+    <string>Zubora</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>1.0</string>
+    <key>LSUIElement</key>
+    <true/>
+    <key>NSScreenCaptureUsageDescription</key>
+    <string>Zubora needs screen recording permissions to capture window screenshots for swap animations.</string>
+    <key>NSAccessibilityUsageDescription</key>
+    <string>Zubora needs accessibility permissions to move and resize windows.</string>
+</dict>
+</plist>
