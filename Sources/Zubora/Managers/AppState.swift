@@ -18,12 +18,14 @@ class AppState: ObservableObject {
     @Published var targetWindowFrame: CGRect?
     
     private var targetElement: AXUIElement?
+    private var lastSwappedOther: AXUIElement? // Remember the last swap partner
     
     private init() {}
     
     func registerTarget(window: AXUIElement) {
         self.targetElement = window
         self.isTargetRegistered = true
+        self.lastSwappedOther = nil // Reset on new registration
         // Get initial frame for highlight
         if let frame = AccessibilityService.shared.getWindowFrame(element: window) {
             self.targetWindowFrame = frame
@@ -43,11 +45,18 @@ class AppState: ObservableObject {
             return
         }
         
-        // Ensure strictly not the same window (simple check)
+        // Check if clicked the target window itself
         if CFEqual(target, clickedElement) {
-            let targetTitle = AccessibilityService.shared.getTitle(element: target)
-            let clickedTitle = AccessibilityService.shared.getTitle(element: clickedElement)
-            print("Clicked same window, ignoring. Target: '\(targetTitle)', Clicked: '\(clickedTitle)'")
+            // If we have a previous swap partner, swap with them again
+            if let lastOther = lastSwappedOther,
+               let lastOtherFrame = AccessibilityService.shared.getWindowFrame(element: lastOther) {
+                let targetTitle = AccessibilityService.shared.getTitle(element: target)
+                let otherTitle = AccessibilityService.shared.getTitle(element: lastOther)
+                print("Re-swapping target '\(targetTitle)' with previous partner '\(otherTitle)'")
+                performSwap(target: target, targetFrame: targetFrame, other: lastOther, otherFrame: lastOtherFrame)
+            } else {
+                print("Clicked target window, but no previous swap partner available")
+            }
             return
         }
         
@@ -56,6 +65,9 @@ class AppState: ObservableObject {
             let clickedTitle = AccessibilityService.shared.getTitle(element: clickedElement)
             print("Swapping target '\(targetTitle)' \(targetFrame) with clicked '\(clickedTitle)' \(clickedFrame)")
             performSwap(target: target, targetFrame: targetFrame, other: clickedElement, otherFrame: clickedFrame)
+            
+            // Remember this as the last swap partner
+            self.lastSwappedOther = clickedElement
         }
     }
     
@@ -110,7 +122,8 @@ class AppState: ObservableObject {
         }
         print("DEBUG: Frames set.")
         
-        // Do NOT update targetWindowFrame here - preserve the originally registered frame
-        // User must re-register (Option+S) to change the target frame
+        // The window that moved INTO the target position becomes the new target
+        self.targetElement = other
+        print("DEBUG: New target is now the window that moved into the slot")
     }
 }
