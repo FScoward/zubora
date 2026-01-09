@@ -110,7 +110,7 @@ class AppState: ObservableObject {
         }
         print("DEBUG: Frames set.")
         
-        // Update target frame for glow
-        self.targetWindowFrame = newTargetFrame
+        // Do NOT update targetWindowFrame here - preserve the originally registered frame
+        // User must re-register (Option+S) to change the target frame
     }
 }
