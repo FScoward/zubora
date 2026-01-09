@@ -19,6 +19,7 @@ class AppState: ObservableObject {
     
     private var targetElement: AXUIElement?
     private var lastSwappedOther: AXUIElement? // Remember the last swap partner
+    private var frameUpdateTimer: Timer?
     
     private init() {}
     
@@ -30,6 +31,30 @@ class AppState: ObservableObject {
         if let frame = AccessibilityService.shared.getWindowFrame(element: window) {
             self.targetWindowFrame = frame
             print("Target registered: \(frame)")
+        }
+        startFrameTracking()
+    }
+    
+    private func startFrameTracking() {
+        stopFrameTracking()
+        frameUpdateTimer = Timer.scheduledTimer(withTimeInterval: 0.016, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.updateTargetFrame()
+            }
+        }
+    }
+    
+    private func stopFrameTracking() {
+        frameUpdateTimer?.invalidate()
+        frameUpdateTimer = nil
+    }
+    
+    private func updateTargetFrame() {
+        guard let target = targetElement else { return }
+        if let frame = AccessibilityService.shared.getWindowFrame(element: target) {
+            if frame != targetWindowFrame {
+                targetWindowFrame = frame
+            }
         }
     }
     
@@ -80,12 +105,24 @@ class AppState: ObservableObject {
         var newOtherFrame = targetFrame
         
         if swapMode == .swapPos {
-            // Check Mode B: Position only, keep original sizes
-            newTargetFrame.size = targetFrame.size
-            newTargetFrame.origin = otherFrame.origin
+            // Mode B: Position only, keep original sizes
+            // Calculate center points
+            let targetCenter = CGPoint(x: targetFrame.midX, y: targetFrame.midY)
+            let otherCenter = CGPoint(x: otherFrame.midX, y: otherFrame.midY)
             
+            // Move target's center to other's center position
+            newTargetFrame.size = targetFrame.size
+            newTargetFrame.origin = CGPoint(
+                x: otherCenter.x - targetFrame.size.width / 2,
+                y: otherCenter.y - targetFrame.size.height / 2
+            )
+            
+            // Move other's center to target's center position
             newOtherFrame.size = otherFrame.size
-            newOtherFrame.origin = targetFrame.origin
+            newOtherFrame.origin = CGPoint(
+                x: targetCenter.x - otherFrame.size.width / 2,
+                y: targetCenter.y - otherFrame.size.height / 2
+            )
         }
         
         // Get Window IDs for animation
