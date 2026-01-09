@@ -49,7 +49,12 @@ class OverlayController: ObservableObject {
             panel.isOpaque = false
             panel.ignoresMouseEvents = true
             panel.setAccessibilityElement(false)
-            panel.contentView = NSHostingView(rootView: OverlayView())
+            panel.hasShadow = false // Remove window shadow
+            
+            let hostingView = NSHostingView(rootView: OverlayView())
+            hostingView.wantsLayer = true
+            hostingView.layer?.backgroundColor = CGColor.clear
+            panel.contentView = hostingView
             self.window = panel
         }
         
@@ -57,10 +62,19 @@ class OverlayController: ObservableObject {
         // AccessibilityService returns App frame which is top-left.
         // NSWindow uses bottom-left.
         // We need to flip Y.
+        // Also add margin so overlay is OUTSIDE the window
+        let margin: CGFloat = 6
+        let expandedFrame = CGRect(
+            x: frame.origin.x - margin,
+            y: frame.origin.y - margin,
+            width: frame.size.width + margin * 2,
+            height: frame.size.height + margin * 2
+        )
+        
         if let screenFrame = NSScreen.main?.frame {
-            let newY = screenFrame.height - frame.origin.y - frame.height
-            let newOrigin = CGPoint(x: frame.origin.x, y: newY)
-            let newFrame = CGRect(origin: newOrigin, size: frame.size)
+            let newY = screenFrame.height - expandedFrame.origin.y - expandedFrame.height
+            let newOrigin = CGPoint(x: expandedFrame.origin.x, y: newY)
+            let newFrame = CGRect(origin: newOrigin, size: expandedFrame.size)
             
             DispatchQueue.main.async {
                 self.window?.setFrame(newFrame, display: true)
@@ -72,11 +86,9 @@ class OverlayController: ObservableObject {
 
 struct OverlayView: View {
     var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(Color.blue, lineWidth: 5)
-                .shadow(color: .blue.opacity(0.8), radius: 10, x: 0, y: 0)
-        }
-        .edgesIgnoringSafeArea(.all)
+        RoundedRectangle(cornerRadius: 12)
+            .strokeBorder(Color.blue, lineWidth: 5)
+            .shadow(color: .blue.opacity(0.8), radius: 10, x: 0, y: 0)
+            .edgesIgnoringSafeArea(.all)
     }
 }
