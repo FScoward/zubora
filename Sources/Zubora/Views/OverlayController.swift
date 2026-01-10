@@ -43,7 +43,7 @@ class OverlayController: ObservableObject {
                 backing: .buffered,
                 defer: false
             )
-            panel.level = .floating
+            panel.level = .normal  // Same level as target window, not floating above
             panel.collectionBehavior = [.canJoinAllSpaces, .ignoresCycle]
             panel.backgroundColor = .clear
             panel.isOpaque = false
