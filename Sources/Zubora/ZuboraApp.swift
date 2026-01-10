@@ -33,7 +33,6 @@ struct ZuboraApp: App {
         print("Zubora Launched")
         NSApplication.shared.setActivationPolicy(.accessory)
         EventManager.shared.startMonitoring()
-        _ = OverlayController.shared
     }
     
     var isPermissionGranted: Bool {

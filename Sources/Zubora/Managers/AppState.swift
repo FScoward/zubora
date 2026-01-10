@@ -42,6 +42,9 @@ class AppState: ObservableObject {
             self.targetWindowFrame = frame
             self.originalTargetFrame = frame  // Remember original target position
             print("Target registered: \(frame)")
+            
+            // Show persistent target highlight
+            SwapAnimationController.shared.updateTargetHighlight(frame: frame)
         }
         startFrameTracking()
     }
@@ -66,6 +69,8 @@ class AppState: ObservableObject {
             if frame != targetWindowFrame {
                 targetWindowFrame = frame
             }
+            // Continuous update for target highlight tracking
+            SwapAnimationController.shared.updateTargetHighlight(frame: frame)
         }
     }
     
@@ -73,6 +78,7 @@ class AppState: ObservableObject {
         guard let target = targetElement, let targetFrame = AccessibilityService.shared.getWindowFrame(element: target) else {
             print("No target registered or target invalid")
             isTargetRegistered = false
+            SwapAnimationController.shared.removeTargetHighlight() // Remove highlight if invalid
             return
         }
         
