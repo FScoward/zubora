@@ -40,6 +40,8 @@ else
 <dict>
     <key>CFBundleExecutable</key>
     <string>$APP_NAME</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>CFBundleIdentifier</key>
     <string>com.example.$APP_NAME</string>
     <key>CFBundleName</key>
@@ -59,6 +61,14 @@ else
 </dict>
 </plist>
 EOF
+fi
+
+# Copy App Icon
+if [ -f "Resources/AppIcon.icns" ]; then
+    echo "Copying App Icon..."
+    cp "Resources/AppIcon.icns" "$RESOURCES_DIR/"
+else
+    echo "WARNING: AppIcon.icns not found in Resources/"
 fi
 
 # 6. Set Executable Permissions

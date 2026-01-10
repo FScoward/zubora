@@ -117,7 +117,12 @@ class SwapAnimationController {
     private var targetHighlightWindow: NSPanel?
     private var rainbowLayer: CALayer?
     
-    func updateTargetHighlight(frame: CGRect) {
+    /// Get the window ID of the highlight window, used to exclude it from coverage checks
+    var highlightWindowID: CGWindowID? {
+        targetHighlightWindow.map { CGWindowID($0.windowNumber) }
+    }
+    
+    func updateTargetHighlight(frame: CGRect, isCovered: Bool = false) {
         guard let screen = NSScreen.main else { return }
         let screenHeight = screen.frame.height
         let nsFrame = convertToNSFrame(frame: frame, screenHeight: screenHeight)
@@ -137,7 +142,9 @@ class SwapAnimationController {
             panel.backgroundColor = .clear
             panel.isOpaque = false
             panel.hasShadow = false
-            panel.level = .init(Int(CGWindowLevelKey.floatingWindow.rawValue) + 1)
+            // Use floating level to stay above regular app windows
+            // When target is covered, we hide the highlight instead
+            panel.level = .floating
             panel.ignoresMouseEvents = true
             panel.collectionBehavior = [.canJoinAllSpaces, .ignoresCycle]
             
@@ -154,6 +161,18 @@ class SwapAnimationController {
         // Update Window Frame
         if window.frame != nsFrame {
             window.setFrame(nsFrame, display: true)
+        }
+        
+        // If target is covered by other windows, hide the highlight
+        // Otherwise, show it (floating level ensures it's above the target)
+        if isCovered {
+            if window.isVisible {
+                window.orderOut(nil)
+            }
+        } else {
+            if !window.isVisible {
+                window.orderFront(nil)
+            }
         }
         
         // Update Layer

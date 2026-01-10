@@ -37,14 +37,17 @@ class AppState: ObservableObject {
         self.originalTargetElement = window
         self.swapChain = []
         
-        // Get initial frame for highlight
         if let frame = AccessibilityService.shared.getWindowFrame(element: window) {
             self.targetWindowFrame = frame
             self.originalTargetFrame = frame  // Remember original target position
             print("Target registered: \(frame)")
             
+            // Check if target is covered by other windows
+            let highlightID = SwapAnimationController.shared.highlightWindowID
+            let isCovered = AccessibilityService.shared.isWindowCovered(element: window, excludeWindowID: highlightID)
+            
             // Show persistent target highlight
-            SwapAnimationController.shared.updateTargetHighlight(frame: frame)
+            SwapAnimationController.shared.updateTargetHighlight(frame: frame, isCovered: isCovered)
         }
         startFrameTracking()
     }
@@ -69,8 +72,13 @@ class AppState: ObservableObject {
             if frame != targetWindowFrame {
                 targetWindowFrame = frame
             }
+            
+            // Check if target is covered by other windows
+            let highlightID = SwapAnimationController.shared.highlightWindowID
+            let isCovered = AccessibilityService.shared.isWindowCovered(element: target, excludeWindowID: highlightID)
+            
             // Continuous update for target highlight tracking
-            SwapAnimationController.shared.updateTargetHighlight(frame: frame)
+            SwapAnimationController.shared.updateTargetHighlight(frame: frame, isCovered: isCovered)
         }
     }
     
