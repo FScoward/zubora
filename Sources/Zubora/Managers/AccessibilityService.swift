@@ -91,28 +91,90 @@ class AccessibilityService {
         return CGRect(origin: point, size: size)
     }
     
-    func setWindowFrame(element: AXUIElement, frame: CGRect) {
-        // 4-step strategy: Size -> Position -> Size -> Position
-        // Each attribute is set twice to handle OS adjustments
-        let delay = 0.02
+    @discardableResult
+    func setWindowFrame(element: AXUIElement, frame: CGRect) -> Bool {
+        // Log min/max size constraints for debugging
+        logSizeConstraints(element)
         
-        setSize(element, frame.size)
-        Thread.sleep(forTimeInterval: delay)
-        
-        setPosition(element, frame.origin)
-        Thread.sleep(forTimeInterval: delay)
-        
-        setSize(element, frame.size)
-        Thread.sleep(forTimeInterval: delay)
-        
-        setPosition(element, frame.origin) // Final - ensures exact position
-        
-        // Verify
-        if let currentFrame = getWindowFrame(element: element) {
-            let posDiff = CGPoint(x: frame.origin.x - currentFrame.origin.x, y: frame.origin.y - currentFrame.origin.y)
-            let sizeDiff = CGSize(width: frame.size.width - currentFrame.size.width, height: frame.size.height - currentFrame.size.height)
-            print("DEBUG: Diff - Pos: \(posDiff), Size: \(sizeDiff)")
+        // Get current frame to determine size change direction
+        guard let originalFrame = getWindowFrame(element: element) else {
+            print("[setWindowFrame] Failed to get original frame")
+            return false
         }
+        
+        print("[setWindowFrame] Original: \(originalFrame)")
+        print("[setWindowFrame] Target:   \(frame)")
+        
+        // Determine if we're growing or shrinking
+        let isGrowingWidth = frame.size.width > originalFrame.size.width
+        let isGrowingHeight = frame.size.height > originalFrame.size.height
+        let isGrowing = isGrowingWidth || isGrowingHeight
+        
+        print("[setWindowFrame] Direction: \(isGrowing ? "GROWING" : "SHRINKING")")
+        
+        // Adaptive strategy with verification
+        let maxRetries = 5
+        let delayMicroseconds: UInt32 = 50_000  // 50ms
+        
+        for attempt in 1...maxRetries {
+            if isGrowing {
+                // Growing: Position first (to avoid screen edge clipping), then Size
+                setPosition(element, frame.origin)
+                usleep(delayMicroseconds)
+                setSize(element, frame.size)
+                usleep(delayMicroseconds)
+                // Second pass: Size then Position for fine-tuning
+                setSize(element, frame.size)
+                usleep(delayMicroseconds)
+                setPosition(element, frame.origin)
+            } else {
+                // Shrinking: Size first, then Position
+                setSize(element, frame.size)
+                usleep(delayMicroseconds)
+                setPosition(element, frame.origin)
+                usleep(delayMicroseconds)
+                // Second pass for fine-tuning
+                setPosition(element, frame.origin)
+                usleep(delayMicroseconds)
+                setSize(element, frame.size)
+            }
+            
+            usleep(delayMicroseconds)
+            
+            // Verify result
+            if let currentFrame = getWindowFrame(element: element) {
+                let posDiffX = abs(frame.origin.x - currentFrame.origin.x)
+                let posDiffY = abs(frame.origin.y - currentFrame.origin.y)
+                let sizeDiffW = abs(frame.size.width - currentFrame.size.width)
+                let sizeDiffH = abs(frame.size.height - currentFrame.size.height)
+                let totalPosDiff = posDiffX + posDiffY
+                let totalSizeDiff = sizeDiffW + sizeDiffH
+                
+                print("[setWindowFrame] Attempt \(attempt): posDiff=\(totalPosDiff), sizeDiff=\(totalSizeDiff)")
+                
+                // Tolerance of 5 pixels total for each
+                if totalPosDiff < 5 && totalSizeDiff < 5 {
+                    print("[setWindowFrame] ✓ Success on attempt \(attempt)")
+                    return true
+                }
+                
+                // If size is clamped by min/max constraints, accept it
+                if attempt == maxRetries {
+                    print("[setWindowFrame] Final result (may be constrained by window limits)")
+                }
+            }
+        }
+        
+        // Final verification and logging
+        if let finalFrame = getWindowFrame(element: element) {
+            let posDiff = CGPoint(x: frame.origin.x - finalFrame.origin.x, 
+                                  y: frame.origin.y - finalFrame.origin.y)
+            let sizeDiff = CGSize(width: frame.size.width - finalFrame.size.width, 
+                                  height: frame.size.height - finalFrame.size.height)
+            print("[setWindowFrame] Final Diff - Pos: \(posDiff), Size: \(sizeDiff)")
+        }
+        
+        return false
     }
     
     func setWindowPosition(element: AXUIElement, position: CGPoint) {
@@ -142,20 +204,31 @@ class AccessibilityService {
     }
     
     func getWindowID(element: AXUIElement) -> CGWindowID? {
-        // Wait, strictly no public API for this in simple AX.
-        // Usually we use _AXUIElementGetWindow(element, &id) which is private/soft-linked?
-        // Actually, kAXWindowNumber attribute might be available?
-        // Let's try kAXWindowNumberAttribute (which is "AXWindowNumber" string).
-        // But kAXWindowNumberAttribute is not always standard.
-        // Actually it is kAXWindowNumber which creates _AXUIElementGetWindow call internally? No.
-        // Standard way:
-        // AXUIElementCopyAttributeValue(..., "AXWindowNumber", ...)
-        
         var value: AnyObject?
         let err = AXUIElementCopyAttributeValue(element, "AXWindowNumber" as CFString, &value)
         if err == .success, let number = value as? NSNumber {
             return CGWindowID(number.intValue)
         }
         return nil
+    }
+    
+    private func logSizeConstraints(_ element: AXUIElement) {
+        // Check AXMinimumSize
+        var minSizeValue: AnyObject?
+        if AXUIElementCopyAttributeValue(element, "AXMinimumSize" as CFString, &minSizeValue) == .success,
+           let val = minSizeValue {
+            var minSize = CGSize.zero
+            AXValueGetValue(val as! AXValue, .cgSize, &minSize)
+            print("DEBUG: Window MinSize = \(minSize)")
+        }
+        
+        // Check AXMaximumSize
+        var maxSizeValue: AnyObject?
+        if AXUIElementCopyAttributeValue(element, "AXMaximumSize" as CFString, &maxSizeValue) == .success,
+           let val = maxSizeValue {
+            var maxSize = CGSize.zero
+            AXValueGetValue(val as! AXValue, .cgSize, &maxSize)
+            print("DEBUG: Window MaxSize = \(maxSize)")
+        }
     }
 }

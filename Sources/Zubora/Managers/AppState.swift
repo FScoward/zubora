@@ -98,30 +98,39 @@ class AppState: ObservableObject {
     
     private func performSwap(target: AXUIElement, targetFrame: CGRect, other: AXUIElement, otherFrame: CGRect) {
         print("DEBUG: performSwap started")
+        
+        // Pause frame tracking during swap to prevent interference
+        stopFrameTracking()
+        
         let swapMode = self.swapMode
         
         // Calculate target frames
-        var newTargetFrame = otherFrame
-        var newOtherFrame = targetFrame
+        var newTargetFrame: CGRect
+        var newOtherFrame: CGRect
         
-        if swapMode == .swapPos {
-            // Mode B: Position only, keep original sizes
-            // Calculate center points
+        if swapMode == .swapAll {
+            // Mode A: Full swap - exchange position AND size completely
+            newTargetFrame = otherFrame   // Target gets other's position and size
+            newOtherFrame = targetFrame   // Other gets target's position and size
+        } else {
+            // Mode B: Position only, keep original sizes, center-based
             let targetCenter = CGPoint(x: targetFrame.midX, y: targetFrame.midY)
             let otherCenter = CGPoint(x: otherFrame.midX, y: otherFrame.midY)
             
             // Move target's center to other's center position
-            newTargetFrame.size = targetFrame.size
-            newTargetFrame.origin = CGPoint(
+            newTargetFrame = CGRect(
                 x: otherCenter.x - targetFrame.size.width / 2,
-                y: otherCenter.y - targetFrame.size.height / 2
+                y: otherCenter.y - targetFrame.size.height / 2,
+                width: targetFrame.size.width,
+                height: targetFrame.size.height
             )
             
             // Move other's center to target's center position
-            newOtherFrame.size = otherFrame.size
-            newOtherFrame.origin = CGPoint(
+            newOtherFrame = CGRect(
                 x: targetCenter.x - otherFrame.size.width / 2,
-                y: targetCenter.y - otherFrame.size.height / 2
+                y: targetCenter.y - otherFrame.size.height / 2,
+                width: otherFrame.size.width,
+                height: otherFrame.size.height
             )
         }
         
@@ -162,5 +171,8 @@ class AppState: ObservableObject {
         // The window that moved INTO the target position becomes the new target
         self.targetElement = other
         print("DEBUG: New target is now the window that moved into the slot")
+        
+        // Resume frame tracking
+        startFrameTracking()
     }
 }
