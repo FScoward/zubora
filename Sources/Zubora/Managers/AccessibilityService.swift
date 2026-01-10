@@ -47,7 +47,7 @@ class AccessibilityService {
         
         // Loop to find the window role
         // Increased limit to 50 for deep hierarchies (e.g. Electron apps)
-        for i in 0..<50 {
+        for _ in 0..<50 {
             var role: AnyObject?
             AXUIElementCopyAttributeValue(currentElement, kAXRoleAttribute as CFString, &role)
             

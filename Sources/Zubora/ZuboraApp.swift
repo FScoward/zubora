@@ -1,5 +1,6 @@
 import SwiftUI
 
+@MainActor
 @main
 struct ZuboraApp: App {
     @StateObject private var appState = AppState.shared
