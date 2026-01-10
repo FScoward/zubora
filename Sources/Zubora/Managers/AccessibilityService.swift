@@ -93,54 +93,66 @@ class AccessibilityService {
     
     @discardableResult
     func setWindowFrame(element: AXUIElement, frame: CGRect) -> Bool {
-        // Get current frame to determine size change direction
         guard let originalFrame = getWindowFrame(element: element) else {
             return false
         }
         
-        // Determine if we're growing or shrinking
-        let isGrowing = frame.size.width > originalFrame.size.width ||
-                        frame.size.height > originalFrame.size.height
+        // Get the application and disable AXEnhancedUserInterface temporarily
+        // (This is what Amethyst/Silica does for reliability)
+        let app = getApplication(for: element)
+        let hadEnhancedUI = disableEnhancedUserInterface(app: app)
         
-        // Delay for API to process (20ms - balance between speed and reliability)
-        let delay: UInt32 = 20_000  // 20ms
+        // Determine if we should set size (only if changed significantly)
+        let threshold: CGFloat = 25.0
+        let shouldSetSize = abs(originalFrame.size.width - frame.size.width) >= threshold ||
+                            abs(originalFrame.size.height - frame.size.height) >= threshold
         
-        // First pass: set position and size
-        if isGrowing {
-            setPosition(element, frame.origin)
-            usleep(delay)
+        // Silica pattern: Size → Position → Size (no delays!)
+        if shouldSetSize {
             setSize(element, frame.size)
-            usleep(delay)
-        } else {
-            setSize(element, frame.size)
-            usleep(delay)
-            setPosition(element, frame.origin)
-            usleep(delay)
         }
         
-        // Second pass: reinforce both
-        setPosition(element, frame.origin)
-        setSize(element, frame.size)
-        usleep(delay)
+        if originalFrame.origin != frame.origin {
+            setPosition(element, frame.origin)
+        }
         
-        // Verify and retry if needed
-        if let currentFrame = getWindowFrame(element: element) {
-            let posDiff = abs(frame.origin.x - currentFrame.origin.x) +
-                          abs(frame.origin.y - currentFrame.origin.y)
-            let sizeDiff = abs(frame.size.width - currentFrame.size.width) +
-                           abs(frame.size.height - currentFrame.size.height)
-            
-            // If off by more than 5 pixels, do final attempt
-            if posDiff > 5 || sizeDiff > 5 {
-                setSize(element, frame.size)
-                usleep(delay)
-                setPosition(element, frame.origin)
-                usleep(delay)
-                setSize(element, frame.size)
-            }
+        if shouldSetSize {
+            setSize(element, frame.size)
+        }
+        
+        // Restore AXEnhancedUserInterface
+        if hadEnhancedUI {
+            enableEnhancedUserInterface(app: app)
         }
         
         return true
+    }
+    
+    // MARK: - Enhanced UI Interface Control
+    
+    private func getApplication(for element: AXUIElement) -> AXUIElement? {
+        var pid: pid_t = 0
+        guard AXUIElementGetPid(element, &pid) == .success else { return nil }
+        return AXUIElementCreateApplication(pid)
+    }
+    
+    private func disableEnhancedUserInterface(app: AXUIElement?) -> Bool {
+        guard let app = app else { return false }
+        
+        var value: AnyObject?
+        let err = AXUIElementCopyAttributeValue(app, "AXEnhancedUserInterface" as CFString, &value)
+        
+        if err == .success, let num = value as? NSNumber, num.boolValue {
+            // Disable it
+            AXUIElementSetAttributeValue(app, "AXEnhancedUserInterface" as CFString, kCFBooleanFalse)
+            return true
+        }
+        return false
+    }
+    
+    private func enableEnhancedUserInterface(app: AXUIElement?) {
+        guard let app = app else { return }
+        AXUIElementSetAttributeValue(app, "AXEnhancedUserInterface" as CFString, kCFBooleanTrue)
     }
     
     func setWindowPosition(element: AXUIElement, position: CGPoint) {
