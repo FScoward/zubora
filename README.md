@@ -51,3 +51,59 @@ swift build -c release
 
 ## 注意事項
 - 初回起動時、**アクセシビリティ権限**と**画面収録権限**（ウィンドウ情報の取得に必要）の許可を求められます。システム設定で許可を与えてください。
+
+---
+
+# Zubora (English)
+
+Zubora is a window position swapping utility for macOS.
+It allows you to instantly swap the layout of windows on your desktop with intuitive operations.
+
+## Features
+- **Easy Swap**: Instantly swap the position and size of two windows.
+- **Gaming Highlight**: The window registered as a target is highlighted with a beautiful rainbow gradient.
+- **Rotation Function**: You can keep the target window fixed and swap its position with other windows one after another.
+
+## How to Use
+
+### 1. Register a Target
+First, decide on a base window (target).
+With that window active (in the foreground), press the following shortcut:
+
+- **`Option` + `S`**
+
+Once registered, the window frame will start to glow with a rainbow color.
+
+### 2. Swap Windows
+Move the mouse cursor over another window you want to swap positions with the target window, and perform the following operation:
+
+- **`Option` + `Control` + `Click` (left-click)**
+
+This will swap the position and size of the target window and the clicked window.
+A refreshing particle effect will be displayed during the swap.
+
+## Installation and Build
+This application is provided as source code. Please build and use it according to the following steps.
+
+### Requirements
+- macOS 13.0 (Ventura) or later
+- Xcode Command Line Tools (Swift 6.2 or later recommended)
+
+### Build Steps
+
+1. Clone the repository.
+2. In the project root directory, run the following command to create a distribution package.
+   ```bash
+   ./package_app.sh
+   ```
+3. Move the generated `Zubora.app` to your Applications folder or another location and launch it.
+
+### Development Build
+For testing during development, you can create and run a release build with the following command:
+```bash
+swift build -c release
+./.build/release/Zubora
+```
+
+## Notes
+- On first launch, you will be asked to grant **Accessibility permissions** and **Screen Recording permissions** (required to get window information). Please grant these permissions in System Settings.
