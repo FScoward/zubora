@@ -142,8 +142,7 @@ class SwapAnimationController {
             panel.backgroundColor = .clear
             panel.isOpaque = false
             panel.hasShadow = false
-            // Use normal level so highlight can be behind other windows
-            panel.level = .normal
+            panel.level = .floating
             panel.ignoresMouseEvents = true
             panel.collectionBehavior = [.canJoinAllSpaces, .ignoresCycle]
             
@@ -162,13 +161,19 @@ class SwapAnimationController {
             window.setFrame(nsFrame, display: true)
         }
         
-        // Only bring highlight to front when target is not covered
-        // When covered, highlight stays behind other windows naturally
-        if !isCovered {
-            window.orderFront(nil)
+        // Dynamically adjust window level based on coverage
+        if isCovered {
+            // When target is covered, use normal level so highlight goes behind
+            if window.level != .normal {
+                window.level = .normal
+            }
+        } else {
+            // When target is visible, use floating level to stay above it
+            if window.level != .floating {
+                window.level = .floating
+                window.orderFront(nil)
+            }
         }
-        // Note: We don't call orderOut when covered - the highlight remains 
-        // visible behind whatever window is covering the target
         
         // Update Layer
         guard let rootLayer = window.contentView?.layer else { return }
