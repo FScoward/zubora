@@ -34,12 +34,9 @@ class EventManager: ObservableObject {
             }
         }
         
-        // Cmd+Click Monitor
+        // Option+Control+Click Monitor (doesn't conflict with other apps)
         clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseDown) { event in
-            if event.modifierFlags.contains(.command) {
-                // Global monitor event locationInWindow is usually in screen coordinates but inverted Y sometimes
-                // Let's check: Cocoa uses bottom-left origin. AX uses top-left.
-                // We need to convert.
+            if event.modifierFlags.contains(.option) && event.modifierFlags.contains(.control) {
                 self.handleGlobalClick(event)
             }
         }
@@ -73,7 +70,7 @@ class EventManager: ObservableObject {
         // event.cgEvent?.location gives Global Display Coordinates (Top-Left origin), which matches AX.
         if let cgEvent = event.cgEvent {
             let axPoint = cgEvent.location
-            print("Cmd+Click detected at \(axPoint) (CGEvent)")
+            print("Option+Control+Click detected at \(axPoint) (CGEvent)")
             
             Task { @MainActor in
                 AppState.shared.handleSwapRequest(at: axPoint)
