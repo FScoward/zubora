@@ -93,88 +93,54 @@ class AccessibilityService {
     
     @discardableResult
     func setWindowFrame(element: AXUIElement, frame: CGRect) -> Bool {
-        // Log min/max size constraints for debugging
-        logSizeConstraints(element)
-        
         // Get current frame to determine size change direction
         guard let originalFrame = getWindowFrame(element: element) else {
-            print("[setWindowFrame] Failed to get original frame")
             return false
         }
         
-        print("[setWindowFrame] Original: \(originalFrame)")
-        print("[setWindowFrame] Target:   \(frame)")
-        
         // Determine if we're growing or shrinking
-        let isGrowingWidth = frame.size.width > originalFrame.size.width
-        let isGrowingHeight = frame.size.height > originalFrame.size.height
-        let isGrowing = isGrowingWidth || isGrowingHeight
+        let isGrowing = frame.size.width > originalFrame.size.width ||
+                        frame.size.height > originalFrame.size.height
         
-        print("[setWindowFrame] Direction: \(isGrowing ? "GROWING" : "SHRINKING")")
+        // Delay for API to process (20ms - balance between speed and reliability)
+        let delay: UInt32 = 20_000  // 20ms
         
-        // Adaptive strategy with verification
-        let maxRetries = 5
-        let delayMicroseconds: UInt32 = 50_000  // 50ms
+        // First pass: set position and size
+        if isGrowing {
+            setPosition(element, frame.origin)
+            usleep(delay)
+            setSize(element, frame.size)
+            usleep(delay)
+        } else {
+            setSize(element, frame.size)
+            usleep(delay)
+            setPosition(element, frame.origin)
+            usleep(delay)
+        }
         
-        for attempt in 1...maxRetries {
-            if isGrowing {
-                // Growing: Position first (to avoid screen edge clipping), then Size
-                setPosition(element, frame.origin)
-                usleep(delayMicroseconds)
-                setSize(element, frame.size)
-                usleep(delayMicroseconds)
-                // Second pass: Size then Position for fine-tuning
-                setSize(element, frame.size)
-                usleep(delayMicroseconds)
-                setPosition(element, frame.origin)
-            } else {
-                // Shrinking: Size first, then Position
-                setSize(element, frame.size)
-                usleep(delayMicroseconds)
-                setPosition(element, frame.origin)
-                usleep(delayMicroseconds)
-                // Second pass for fine-tuning
-                setPosition(element, frame.origin)
-                usleep(delayMicroseconds)
-                setSize(element, frame.size)
-            }
+        // Second pass: reinforce both
+        setPosition(element, frame.origin)
+        setSize(element, frame.size)
+        usleep(delay)
+        
+        // Verify and retry if needed
+        if let currentFrame = getWindowFrame(element: element) {
+            let posDiff = abs(frame.origin.x - currentFrame.origin.x) +
+                          abs(frame.origin.y - currentFrame.origin.y)
+            let sizeDiff = abs(frame.size.width - currentFrame.size.width) +
+                           abs(frame.size.height - currentFrame.size.height)
             
-            usleep(delayMicroseconds)
-            
-            // Verify result
-            if let currentFrame = getWindowFrame(element: element) {
-                let posDiffX = abs(frame.origin.x - currentFrame.origin.x)
-                let posDiffY = abs(frame.origin.y - currentFrame.origin.y)
-                let sizeDiffW = abs(frame.size.width - currentFrame.size.width)
-                let sizeDiffH = abs(frame.size.height - currentFrame.size.height)
-                let totalPosDiff = posDiffX + posDiffY
-                let totalSizeDiff = sizeDiffW + sizeDiffH
-                
-                print("[setWindowFrame] Attempt \(attempt): posDiff=\(totalPosDiff), sizeDiff=\(totalSizeDiff)")
-                
-                // Tolerance of 5 pixels total for each
-                if totalPosDiff < 5 && totalSizeDiff < 5 {
-                    print("[setWindowFrame] ✓ Success on attempt \(attempt)")
-                    return true
-                }
-                
-                // If size is clamped by min/max constraints, accept it
-                if attempt == maxRetries {
-                    print("[setWindowFrame] Final result (may be constrained by window limits)")
-                }
+            // If off by more than 5 pixels, do final attempt
+            if posDiff > 5 || sizeDiff > 5 {
+                setSize(element, frame.size)
+                usleep(delay)
+                setPosition(element, frame.origin)
+                usleep(delay)
+                setSize(element, frame.size)
             }
         }
         
-        // Final verification and logging
-        if let finalFrame = getWindowFrame(element: element) {
-            let posDiff = CGPoint(x: frame.origin.x - finalFrame.origin.x, 
-                                  y: frame.origin.y - finalFrame.origin.y)
-            let sizeDiff = CGSize(width: frame.size.width - finalFrame.size.width, 
-                                  height: frame.size.height - finalFrame.size.height)
-            print("[setWindowFrame] Final Diff - Pos: \(posDiff), Size: \(sizeDiff)")
-        }
-        
-        return false
+        return true
     }
     
     func setWindowPosition(element: AXUIElement, position: CGPoint) {

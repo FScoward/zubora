@@ -138,41 +138,39 @@ class AppState: ObservableObject {
         let targetID = AccessibilityService.shared.getWindowID(element: target) ?? 0
         let otherID = AccessibilityService.shared.getWindowID(element: other) ?? 0
         
-        // Animate
-        if targetID != 0 && otherID != 0 {
-             print("DEBUG: Calling animateSwap")
-             SwapAnimationController.shared.animateSwap(
-                window1ID: targetID,
-                frame1: targetFrame,
-                window2ID: otherID,
-                frame2: otherFrame,
-                targetFrame1: newTargetFrame,
-                targetFrame2: newOtherFrame
-             ) {
-                print("DEBUG: animateSwap completion block")
-             }
+        // Closure to perform the actual window move
+        let moveWindows = { [self] in
+            print("DEBUG: Setting frames...")
+            if swapMode == .swapAll {
+                print("DEBUG: Setting Target Frame to \(newTargetFrame)")
+                AccessibilityService.shared.setWindowFrame(element: target, frame: newTargetFrame)
+                print("DEBUG: Setting Other Frame to \(newOtherFrame)")
+                AccessibilityService.shared.setWindowFrame(element: other, frame: newOtherFrame)
+            } else {
+                print("DEBUG: Setting Target Position to \(newTargetFrame.origin)")
+                AccessibilityService.shared.setWindowPosition(element: target, position: newTargetFrame.origin)
+                print("DEBUG: Setting Other Position to \(newOtherFrame.origin)")
+                AccessibilityService.shared.setWindowPosition(element: other, position: newOtherFrame.origin)
+            }
+            print("DEBUG: Frames set.")
+            
+            // The window that moved INTO the target position becomes the new target
+            self.targetElement = other
+            print("DEBUG: New target is now the window that moved into the slot")
+            
+            // Resume frame tracking
+            self.startFrameTracking()
         }
         
-        print("DEBUG: Setting frames...")
-        // Move windows immediately (behind the proxy)
-        if swapMode == .swapAll {
-            print("DEBUG: Setting Target Frame to \(newTargetFrame)")
-            AccessibilityService.shared.setWindowFrame(element: target, frame: newTargetFrame)
-            print("DEBUG: Setting Other Frame to \(newOtherFrame)")
-            AccessibilityService.shared.setWindowFrame(element: other, frame: newOtherFrame)
-        } else {
-            print("DEBUG: Setting Target Position to \(newTargetFrame.origin)")
-            AccessibilityService.shared.setWindowPosition(element: target, position: newTargetFrame.origin)
-            print("DEBUG: Setting Other Position to \(newOtherFrame.origin)")
-            AccessibilityService.shared.setWindowPosition(element: other, position: newOtherFrame.origin)
+        // Move windows first, then show visual feedback
+        moveWindows()
+        
+        // Show lightweight visual feedback (border animation)
+        SwapAnimationController.shared.showSwapFeedback(
+            targetFrame1: newTargetFrame,
+            targetFrame2: newOtherFrame
+        ) {
+            print("DEBUG: Visual feedback complete")
         }
-        print("DEBUG: Frames set.")
-        
-        // The window that moved INTO the target position becomes the new target
-        self.targetElement = other
-        print("DEBUG: New target is now the window that moved into the slot")
-        
-        // Resume frame tracking
-        startFrameTracking()
     }
 }
