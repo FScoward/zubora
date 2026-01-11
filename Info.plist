@@ -7,7 +7,7 @@
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleIdentifier</key>
-    <string>com.fscoward.zubora</string>
+    <string>com.fscoward.zubora.v2</string>
     <key>CFBundleName</key>
     <string>Zubora</string>
     <key>CFBundlePackageType</key>

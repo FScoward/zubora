@@ -33,7 +33,8 @@ class PermissionManager: ObservableObject {
     func requestAccessibilityPermission() {
         let key = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
         let options = [key: true]
-        AXIsProcessTrustedWithOptions(options as CFDictionary)
+        let isTrusted = AXIsProcessTrustedWithOptions(options as CFDictionary)
+        self.hasAccessibilityPermission = isTrusted
     }
     
     private func checkScreenRecordingPermission() {
