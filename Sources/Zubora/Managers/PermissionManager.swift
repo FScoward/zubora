@@ -18,10 +18,6 @@ class PermissionManager: ObservableObject {
         }
     }
     
-    deinit {
-        stopPolling()
-    }
-    
     func checkPermissions() {
         checkAccessibilityPermission()
         checkScreenRecordingPermission()
