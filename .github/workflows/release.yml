@@ -47,6 +47,11 @@ jobs:
           chmod +x package_app.sh
           ./package_app.sh
 
+      # === Ad-hoc Code Signing ===
+      - name: Ad-hoc Sign App
+        run: |
+          codesign --force --deep --sign - ${{ env.APP_NAME }}.app
+
       # === Upload ===
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
