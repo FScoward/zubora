@@ -50,7 +50,7 @@ jobs:
       # === Ad-hoc Code Signing ===
       - name: Ad-hoc Sign App
         run: |
-          codesign --force --deep --sign - ${{ env.APP_NAME }}.app
+          codesign --force --deep --sign - --entitlements Zubora.entitlements ${{ env.APP_NAME }}.app
 
       # === Upload ===
       - name: Upload Artifact
