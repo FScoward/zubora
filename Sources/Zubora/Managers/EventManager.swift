@@ -34,9 +34,13 @@ class EventManager: ObservableObject {
             }
         }
         
-        // Option+Control+Click Monitor (doesn't conflict with other apps)
+        // Configurable Modifier+Click Monitor
         clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseDown) { event in
-            if event.modifierFlags.contains(.option) && event.modifierFlags.contains(.control) {
+            let requiredFlags = AppState.shared.modifierFlags
+            // We strip out irrelevant flags like .numericPad, .help, etc. for cleaner comparison
+            let currentFlags = event.modifierFlags.intersection([.deviceIndependentFlagsMask])
+            
+            if currentFlags == requiredFlags {
                 self.handleGlobalClick(event)
             }
         }

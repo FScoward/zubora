@@ -21,6 +21,25 @@ struct ZuboraApp: App {
                 }
             }
             
+            Menu("Modifiers (Click)") {
+                Toggle("Command (⌘)", isOn: Binding(
+                    get: { appState.modifierFlags.contains(.command) },
+                    set: { _ in appState.toggleModifier(.command) }
+                ))
+                Toggle("Option (⌥)", isOn: Binding(
+                    get: { appState.modifierFlags.contains(.option) },
+                    set: { _ in appState.toggleModifier(.option) }
+                ))
+                Toggle("Control (⌃)", isOn: Binding(
+                    get: { appState.modifierFlags.contains(.control) },
+                    set: { _ in appState.toggleModifier(.control) }
+                ))
+                Toggle("Shift (⇧)", isOn: Binding(
+                    get: { appState.modifierFlags.contains(.shift) },
+                    set: { _ in appState.toggleModifier(.shift) }
+                ))
+            }
+            
             Divider()
             
             Button("Quit") {

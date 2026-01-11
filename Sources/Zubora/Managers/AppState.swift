@@ -16,6 +16,11 @@ class AppState: ObservableObject {
     @Published var swapMode: SwapMode = .swapAll
     @Published var isTargetRegistered: Bool = false
     @Published var targetWindowFrame: CGRect?
+    @Published var modifierFlags: NSEvent.ModifierFlags = [] {
+        didSet {
+            UserDefaults.standard.set(modifierFlags.rawValue, forKey: "ModifierFlags")
+        }
+    }
     
     private var targetElement: AXUIElement?
     private var lastSwappedOther: AXUIElement? // Remember the last swap partner
@@ -26,7 +31,23 @@ class AppState: ObservableObject {
     private var originalTargetFrame: CGRect?         // A's original position
     private var swapChain: [(element: AXUIElement, originalFrame: CGRect)] = []  // Swap history
     
-    private init() {}
+    private init() {
+        let savedFlags = UserDefaults.standard.integer(forKey: "ModifierFlags")
+        if savedFlags != 0 {
+            self.modifierFlags = NSEvent.ModifierFlags(rawValue: UInt(savedFlags))
+        } else {
+            // Default: Option + Control
+            self.modifierFlags = [.option, .control]
+        }
+    }
+    
+    func toggleModifier(_ flag: NSEvent.ModifierFlags) {
+        if modifierFlags.contains(flag) {
+            modifierFlags.remove(flag)
+        } else {
+            modifierFlags.insert(flag)
+        }
+    }
     
     func registerTarget(window: AXUIElement) {
         self.targetElement = window
