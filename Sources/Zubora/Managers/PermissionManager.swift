@@ -9,8 +9,17 @@ class PermissionManager: ObservableObject {
     @Published var hasAccessibilityPermission: Bool = false
     @Published var hasScreenRecordingPermission: Bool = false
     
+    private var pollingTimer: Timer?
+    
     private init() {
         checkPermissions()
+        if !hasAccessibilityPermission {
+            startPolling()
+        }
+    }
+    
+    deinit {
+        stopPolling()
     }
     
     func checkPermissions() {
@@ -52,5 +61,26 @@ class PermissionManager: ObservableObject {
         if #available(macOS 11.0, *) {
             CGRequestScreenCaptureAccess()
         }
+    }
+    
+    private func startPolling() {
+        stopPolling()
+        // Poll every 1 second
+        pollingTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self = self else { return }
+                self.checkPermissions()
+                
+                // Stop polling if we got permission
+                if self.hasAccessibilityPermission {
+                    self.stopPolling()
+                }
+            }
+        }
+    }
+    
+    private func stopPolling() {
+        pollingTimer?.invalidate()
+        pollingTimer = nil
     }
 }
