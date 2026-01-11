@@ -77,7 +77,7 @@ chmod +x "$MACOS_DIR/$APP_NAME"
 echo "✅ App Bundle created at: $APP_BUNDLE"
 echo "To run: open $APP_BUNDLE"
 
-# 7. Create ZIP for distribution
-echo "🗜 Compressing..."
-zip -r "$APP_NAME.zip" "$APP_BUNDLE"
-echo "✅ Distribution package created: $APP_NAME.zip"
+# 7. Create ZIP for distribution - MOVED TO GITHUB ACTIONS
+# echo "🗜 Compressing..."
+# zip -r "$APP_NAME.zip" "$APP_BUNDLE"
+# echo "✅ Distribution package created: $APP_NAME.zip"
