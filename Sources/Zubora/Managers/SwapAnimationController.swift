@@ -15,7 +15,8 @@ class SwapAnimationController {
         targetFrame2: CGRect,
         completion: @escaping () -> Void
     ) {
-        guard let screen = NSScreen.main else {
+        // Use primary screen for coordinate conversion to ensure consistency with global coordinates
+        guard let screen = NSScreen.screens.first else {
             completion()
             return
         }
@@ -123,7 +124,7 @@ class SwapAnimationController {
     }
     
     func updateTargetHighlight(frame: CGRect, isCovered: Bool = false) {
-        guard let screen = NSScreen.main else { return }
+        guard let screen = NSScreen.screens.first else { return }
         let screenHeight = screen.frame.height
         let nsFrame = convertToNSFrame(frame: frame, screenHeight: screenHeight)
         let bounds = NSRect(origin: .zero, size: nsFrame.size)
