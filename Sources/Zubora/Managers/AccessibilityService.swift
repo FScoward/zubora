@@ -305,8 +305,9 @@ class AccessibilityService {
                 let targetArea = targetFrame.width * targetFrame.height
                 let overlapPercent = overlapArea / targetArea
                 
-                // If overlap is more than 10% of target area, consider it covered
-                if overlapPercent > 0.1 {
+                // If overlap is more than 0.5% of target area, consider it covered
+                // (User requested strictly, meaning "hides easily")
+                if overlapPercent > 0.005 {
                     return true
                 }
             }
