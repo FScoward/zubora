@@ -42,6 +42,12 @@ struct ZuboraApp: App {
             
             Divider()
             
+            Button("Check for Updates...") {
+                UpdateManager.shared.checkForUpdates()
+            }
+            
+            Divider()
+            
             Button("Quit") {
                 NSApplication.shared.terminate(nil)
             }
@@ -53,6 +59,7 @@ struct ZuboraApp: App {
         print("Zubora Launched")
         NSApplication.shared.setActivationPolicy(.accessory)
         EventManager.shared.startMonitoring()
+        _ = UpdateManager.shared
     }
     
     var isPermissionGranted: Bool {

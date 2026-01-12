@@ -68,3 +68,38 @@ jobs:
         with:
           files: ${{ env.APP_NAME }}.zip
           generate_release_notes: true
+
+      # === Generate Appcast ===
+      - name: Generate Appcast
+        env:
+          SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          # Find generate_appcast tool
+          GENERATE_APPCAST=$(find .build -name "generate_appcast" -type f | head -n 1)
+          if [ -z "$GENERATE_APPCAST" ]; then
+            echo "::error::generate_appcast tool not found"
+            exit 1
+          fi
+          
+          # Create a directory for specific release artifacts to generate appcast from
+          mkdir release_feed
+          cp ${{ env.APP_NAME }}.zip release_feed/
+          
+          # Generate appcast
+          # We use the download-url-prefix to point to the GitHub Release asset
+          $GENERATE_APPCAST release_feed/ \
+            --download-url-prefix "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/" \
+            --ed-key-file <(echo "$SPARKLE_ED_PRIVATE_KEY")
+            
+          # Move appcast to a deploy directory
+          mkdir public
+          cp release_feed/appcast.xml public/
+
+      # === Deploy to GitHub Pages ===
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./public
+          keep_files: true # Keep other files if any (though we might want to overwrite)
+          publish_branch: gh-pages

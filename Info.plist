@@ -28,5 +28,11 @@
     <string>Zubora needs screen recording permissions to capture window screenshots for swap animations.</string>
     <key>NSAccessibilityUsageDescription</key>
     <string>Zubora needs accessibility permissions to move and resize windows.</string>
+    <key>SUEnableAutomaticChecks</key>
+    <true/>
+    <key>SUFeedURL</key>
+    <string>https://fscoward.github.io/zubora/appcast.xml</string>
+    <key>SUPublicEDKey</key>
+    <string>rF2Xtc7uy55+byrLaWMwPZGwyQF4FDDjaQ3vATKACYI=</string>
 </dict>
 </plist>

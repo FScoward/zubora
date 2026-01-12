@@ -22,6 +22,7 @@ rm -rf "$APP_BUNDLE"
 echo "Creating bundle structure..."
 mkdir -p "$MACOS_DIR"
 mkdir -p "$RESOURCES_DIR"
+mkdir -p "$CONTENTS_DIR/Frameworks"
 
 # 4. Copy Binary
 echo "Copying binary..."
@@ -67,12 +68,26 @@ fi
 if [ -f "Resources/AppIcon.icns" ]; then
     echo "Copying App Icon..."
     cp "Resources/AppIcon.icns" "$RESOURCES_DIR/"
-else
     echo "WARNING: AppIcon.icns not found in Resources/"
+fi
+
+# 7. Copy Frameworks (Sparkle)
+echo "Copying Frameworks..."
+# Find Sparkle.framework in build artifacts
+SPARKLE_FRAMEWORK=$(find .build -name "Sparkle.framework" -type d | head -n 1)
+if [ -n "$SPARKLE_FRAMEWORK" ]; then
+    echo "Found Sparkle at: $SPARKLE_FRAMEWORK"
+    cp -R "$SPARKLE_FRAMEWORK" "$CONTENTS_DIR/Frameworks/"
+else
+    echo "❌ ERROR: Sparkle.framework not found in build artifacts!"
 fi
 
 # 6. Set Executable Permissions
 chmod +x "$MACOS_DIR/$APP_NAME"
+
+# 8. Set RPATH
+echo "Setting RPATH..."
+install_name_tool -add_rpath "@executable_path/../Frameworks" "$MACOS_DIR/$APP_NAME"
 
 echo "✅ App Bundle created at: $APP_BUNDLE"
 echo "To run: open $APP_BUNDLE"
