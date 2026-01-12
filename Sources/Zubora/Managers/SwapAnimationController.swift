@@ -239,6 +239,81 @@ class SwapAnimationController {
         }
     }
 
+    // MARK: - Selection Highlight (Temporary)
+    
+    private var selectionHighlightWindow: NSPanel?
+    private let SelectionLayerName = "SelectionLayer"
+    
+    func updateSelectionHighlight(frame: CGRect) {
+        print("DEBUG: updateSelectionHighlight called with frame: \(frame)")
+        guard let screen = NSScreen.screens.first else {
+            print("DEBUG: No screen found")
+            return
+        }
+        let screenHeight = screen.frame.height
+        let nsFrame = convertToNSFrame(frame: frame, screenHeight: screenHeight)
+        
+        // Ensure window exists
+        let window: NSPanel
+        if let existingWin = selectionHighlightWindow {
+            window = existingWin
+        } else {
+            print("DEBUG: Creating new selection highlight window")
+            let panel = NSPanel(
+                contentRect: nsFrame,
+                styleMask: [.borderless, .nonactivatingPanel],
+                backing: .buffered,
+                defer: false
+            )
+            panel.backgroundColor = .clear
+            panel.isOpaque = false
+            panel.hasShadow = false
+            panel.level = .popUpMenu // Higher level to ensure it stays on top
+            panel.hidesOnDeactivate = false // Prevent hiding when other apps activate
+            panel.ignoresMouseEvents = true
+            panel.collectionBehavior = [.canJoinAllSpaces, .ignoresCycle]
+            
+            let contentView = NSView(frame: nsFrame)
+            contentView.wantsLayer = true
+            contentView.layer?.backgroundColor = .clear
+            panel.contentView = contentView
+            
+            self.selectionHighlightWindow = panel
+            window = panel
+            panel.orderFront(nil)
+        }
+        
+        // Update Window Frame
+        if window.frame != nsFrame {
+            window.setFrame(nsFrame, display: true)
+        }
+        
+        // Show window if hidden
+        if window.alphaValue < 1.0 { window.alphaValue = 1.0 }
+        window.orderFront(nil)
+        
+        // Update Layer
+        guard let rootLayer = window.contentView?.layer else { return }
+        
+        if rootLayer.sublayers?.first(where: { $0.name == SelectionLayerName }) == nil {
+            // Create Selection Border
+            let border = createBorderLayer(frame: NSRect(origin: .zero, size: nsFrame.size), color: NSColor.systemYellow)
+            border.borderWidth = 6 // Thicker for visibility
+            border.name = SelectionLayerName
+            rootLayer.sublayers = [border] // Replace all
+        } else if let border = rootLayer.sublayers?.first(where: { $0.name == SelectionLayerName }) {
+            // Update frame
+            border.frame = NSRect(origin: .zero, size: nsFrame.size)
+        }
+    }
+    
+    func removeSelectionHighlight() {
+        if let window = selectionHighlightWindow {
+            window.orderOut(nil)
+            selectionHighlightWindow = nil
+        }
+    }
+
     // MARK: - Effect Helpers
     
     private func createRainbowBorder(bounds: NSRect) -> CALayer {

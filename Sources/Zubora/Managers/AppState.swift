@@ -22,7 +22,7 @@ class AppState: ObservableObject {
         }
     }
     
-    private var targetElement: AXUIElement?
+    var targetElement: AXUIElement?
     private var lastSwappedOther: AXUIElement? // Remember the last swap partner
     private var frameUpdateTimer: Timer?
     
@@ -104,15 +104,23 @@ class AppState: ObservableObject {
     }
     
     func handleSwapRequest(at point: CGPoint) {
+        guard let clickedElement = AccessibilityService.shared.getElementAtPosition(point) else {
+            print("No window found at click")
+            return
+        }
+        processSwap(with: clickedElement)
+    }
+    
+    /// Public method to trigger swap with a specific window (e.g. from Shortcut)
+    func swapWithTarget(_ window: AXUIElement) {
+        processSwap(with: window)
+    }
+    
+    private func processSwap(with clickedElement: AXUIElement) {
         guard let target = targetElement, let targetFrame = AccessibilityService.shared.getWindowFrame(element: target) else {
             print("No target registered or target invalid")
             isTargetRegistered = false
             SwapAnimationController.shared.removeTargetHighlight() // Remove highlight if invalid
-            return
-        }
-        
-        guard let clickedElement = AccessibilityService.shared.getElementAtPosition(point) else {
-            print("No window found at click")
             return
         }
         

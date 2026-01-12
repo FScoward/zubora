@@ -1,15 +1,135 @@
 import ApplicationServices
 import CoreGraphics
 import Foundation
+import AppKit
 
 @MainActor
 class AccessibilityService {
     static let shared = AccessibilityService()
     
-    private let systemWideElement = AXUIElementCreateSystemWide()
+    // MARK: - Caching
+    private let systemWideElement = AXUIElementCreateSystemWide() // Restored
+    private var appElementCache: [pid_t: AXUIElement] = [:]
     
-    // MARK: - Window Discovery
+    private func getAppElement(_ pid: pid_t) -> AXUIElement {
+        if let element = appElementCache[pid] {
+            return element
+        }
+        let element = AXUIElementCreateApplication(pid)
+        appElementCache[pid] = element
+        return element
+    }
+
+    /// Get all visible windows from regular applications
+    func getVisibleWindows() -> [WindowInfo] {
+        // 1. Get list of all visual windows on screen
+        guard let windowInfos = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
+            return []
+        }
+        
+        // Structure to hold CGWindowList data
+        struct CGWindow {
+            let id: CGWindowID
+            let frame: CGRect
+            let ownerPID: pid_t
+        }
+        
+        let visibleCGWindows: [CGWindow] = windowInfos.compactMap { info -> CGWindow? in
+            guard let layer = info[kCGWindowLayer as String] as? Int, layer == 0 else { return nil }
+            guard let bounds = info[kCGWindowBounds as String] as? [String: CGFloat],
+                  let x = bounds["X"], let y = bounds["Y"],
+                  let w = bounds["Width"], let h = bounds["Height"],
+                  w > 10, h > 10 else { return nil }
+            if let alpha = info[kCGWindowAlpha as String] as? Double, alpha < 0.1 { return nil }
+            guard let id = info[kCGWindowNumber as String] as? CGWindowID else { return nil }
+            guard let pid = info[kCGWindowOwnerPID as String] as? Int32 else { return nil }
+            
+            return CGWindow(id: id, frame: CGRect(x: x, y: y, width: w, height: h), ownerPID: pid)
+        }
+        
+        var results: [WindowInfo] = []
+        
+        // 2. Iterate running apps
+        for app in NSWorkspace.shared.runningApplications {
+            guard app.activationPolicy == .regular else { continue }
+            
+            let pid = app.processIdentifier
+            let appElement = getAppElement(pid)
+            
+            var windowsRef: AnyObject?
+            if AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &windowsRef) == .success,
+               let appWindows = windowsRef as? [AXUIElement] {
+                
+                for windowElement in appWindows {
+                    // Minimized check
+                    var minimizedVal: AnyObject?
+                    if AXUIElementCopyAttributeValue(windowElement, kAXMinimizedAttribute as CFString, &minimizedVal) == .success,
+                       let minimized = minimizedVal as? Bool, minimized {
+                        continue
+                    }
+                    
+                    // Match AXElement to CGWindow
+                    var matchedCGWindow: CGWindow?
+                    
+                    if let axID = getWindowID(element: windowElement) {
+                        matchedCGWindow = visibleCGWindows.first { $0.id == axID }
+                    }
+                    
+                    if matchedCGWindow == nil, let axFrame = getWindowFrame(element: windowElement) {
+                        // Relaxed frame matching
+                        matchedCGWindow = visibleCGWindows.first { cgWin in
+                            cgWin.ownerPID == pid && // Must belong to same app
+                            abs(cgWin.frame.origin.x - axFrame.origin.x) < 20 &&
+                            abs(cgWin.frame.origin.y - axFrame.origin.y) < 20 &&
+                            abs(cgWin.frame.width - axFrame.width) < 20 &&
+                            abs(cgWin.frame.height - axFrame.height) < 20
+                        }
+                    }
+                    
+                    if let match = matchedCGWindow {
+                        let title = getTitle(element: windowElement)
+                        let info = WindowInfo(
+                            id: match.id,
+                            element: windowElement,
+                            app: app,
+                            frame: match.frame,
+                            title: title
+                        )
+                        results.append(info)
+                    }
+                }
+            }
+        }
+        
+        print("DEBUG: getVisibleWindows found \(results.count) windows via WindowInfo")
+        
+        // Re-order results based on visibleCGWindows order
+        let orderedResults = visibleCGWindows.compactMap { cgWin in
+            results.first { $0.id == cgWin.id }
+        }
+        
+        return orderedResults
+    }
     
+    /// Activate a specific window and bring to front
+    func activateWindow(_ element: AXUIElement) {
+        // 1. Activate the application
+        if let app = getApplication(for: element) {
+            var pid: pid_t = 0
+            if AXUIElementGetPid(app, &pid) == .success {
+                if let nsApp = NSRunningApplication(processIdentifier: pid) {
+                    nsApp.activate(options: [.activateIgnoringOtherApps])
+                }
+            }
+        }
+        
+        // 2. Raise the window
+        AXUIElementPerformAction(element, kAXRaiseAction as CFString)
+        
+        // 3. Set Main
+        AXUIElementSetAttributeValue(element, kAXMainAttribute as CFString, kCFBooleanTrue)
+    }
+
     func getElementAtPosition(_ point: CGPoint) -> AXUIElement? {
         var element: AXUIElement?
         let result = AXUIElementCopyElementAtPosition(systemWideElement, Float(point.x), Float(point.y), &element)

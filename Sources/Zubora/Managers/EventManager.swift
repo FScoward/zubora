@@ -9,6 +9,11 @@ class EventManager: ObservableObject {
     private var runLoopSource: CFRunLoopSource?
     private var keyDownMonitor: Any?
     
+    private var isSwitching = false
+    private var switchableWindows: [WindowInfo] = []
+    private var currentSwitchIndex = 0
+    private var originalWindow: WindowInfo?
+    
     func startMonitoring() {
         print("Starting EventManager monitoring...")
         print("Accessibility Trusted: \(AXIsProcessTrusted())")
@@ -31,12 +36,14 @@ class EventManager: ObservableObject {
             }
         }
         
-        // Setup Event Tap for Clicks (to allow swallowing)
+        // Setup Event Tap for Clicks (to allow swallowing) and Key events
         setupEventTap()
     }
     
     private func setupEventTap() {
-        let eventMask = (1 << CGEventType.leftMouseDown.rawValue)
+        let eventMask = (1 << CGEventType.leftMouseDown.rawValue) |
+                        (1 << CGEventType.keyDown.rawValue) |
+                        (1 << CGEventType.flagsChanged.rawValue)
         
         let observer = UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque())
         
@@ -46,8 +53,39 @@ class EventManager: ObservableObject {
             options: .defaultTap,
             eventsOfInterest: CGEventMask(eventMask),
             callback: { (proxy, type, event, refcon) -> Unmanaged<CGEvent>? in
-                guard let _ = refcon else { return Unmanaged.passUnretained(event) }
-                // let manager = Unmanaged<EventManager>.fromOpaque(refcon).takeUnretainedValue() // Unused
+                guard let refcon = refcon else { return Unmanaged.passUnretained(event) }
+                let manager = Unmanaged<EventManager>.fromOpaque(refcon).takeUnretainedValue()
+                
+                if type == .flagsChanged {
+                    // Check if modifiers are released while switching
+                    if manager.isSwitching {
+                        let flags = event.flags
+                        // Require both Option and Control to be held.
+                        // If either is missing, we consider it a release/commit.
+                        let hasModifiers = flags.contains(.maskAlternate) && flags.contains(.maskControl)
+                        
+                        if !hasModifiers {
+                            print("Modifiers released. Committing swap.")
+                            Task { @MainActor in
+                                manager.commitSwap()
+                            }
+                        }
+                    }
+                    return Unmanaged.passUnretained(event)
+                }
+                
+                if type == .keyDown {
+                    let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
+                    // Tab: 48
+                    // Check for Control + Option
+                    if keyCode == 48 && event.flags.contains(.maskAlternate) && event.flags.contains(.maskControl) {
+                        print("Ctrl+Option+Tab detected")
+                        Task { @MainActor in
+                            manager.handleSwitchRequest()
+                        }
+                        return nil // Swallow event
+                    }
+                }
                 
                 if type == .leftMouseDown {
                     // Get current flags from event
@@ -94,19 +132,117 @@ class EventManager: ObservableObject {
         print("Event Tap installed successfully")
     }
     
-    // EventManager is a singleton, deinit is never called.
-    // Removing deinit to avoid strict concurrency errors accessing MainActor isolated properties.
-    /*
-    deinit {
-        if let tap = eventTap {
-            CGEvent.tapEnable(tap: tap, enable: false)
+    // ...
+    
+    // MARK: - Switching Logic
+
+    @MainActor
+    private func handleSwitchRequest() {
+        if !isSwitching {
+            // Start Switching
+            isSwitching = true
+            
+            // 1. Populate switchable windows first
+            switchableWindows = AccessibilityService.shared.getVisibleWindows()
+            
+            // 2. Identify Original Window (Currently Focused) working against the list
+            originalWindow = nil
+            
+            if let frontApp = NSWorkspace.shared.frontmostApplication {
+                let appElement = AXUIElementCreateApplication(frontApp.processIdentifier)
+                var focusedWindow: AnyObject?
+                
+                if AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &focusedWindow) == .success {
+                     let focusedElement = focusedWindow as! AXUIElement
+                     
+                    // Try to match focusedElement to one of our known visible windows
+                    // Strategy: ID Match -> Frame Match
+                    
+                    if let id = AccessibilityService.shared.getWindowID(element: focusedElement) {
+                        originalWindow = switchableWindows.first { $0.id == id }
+                    }
+                    
+                    if originalWindow == nil, let frame = AccessibilityService.shared.getWindowFrame(element: focusedElement) {
+                        // Fuzzy frame match
+                        originalWindow = switchableWindows.first { info in
+                            abs(info.frame.origin.x - frame.origin.x) < 20 &&
+                            abs(info.frame.origin.y - frame.origin.y) < 20 &&
+                            abs(info.frame.width - frame.width) < 20 &&
+                            abs(info.frame.height - frame.height) < 20
+                        }
+                    }
+                }
+            }
+            
+            if let orig = originalWindow {
+                print("DEBUG: Original Window identified: \(orig.title) (ID: \(orig.id))")
+            } else {
+                print("DEBUG: Failed to identify Original Window in switchable list.")
+            }
+            
+            // Find index of original window to start from
+            if let startWindow = originalWindow {
+                if let index = switchableWindows.firstIndex(where: { $0.id == startWindow.id }) {
+                    currentSwitchIndex = index
+                } else {
+                    currentSwitchIndex = 0
+                }
+            } else {
+               currentSwitchIndex = 0
+            }
         }
-        if let source = runLoopSource {
-            CFRunLoopRemoveSource(CFRunLoopGetCurrent(), source, .commonModes)
+        
+        // Cycle to next window
+        if !switchableWindows.isEmpty {
+            currentSwitchIndex = (currentSwitchIndex + 1) % switchableWindows.count
+            let targetWindow = switchableWindows[currentSwitchIndex]
+            
+            // Activate it (bring to front/focus)
+            targetWindow.activate()
+            print("Switched focus to window index: \(currentSwitchIndex) title: \(targetWindow.title)")
+            
+            // Show Highlight on the new selection
+            // Use the frame from WindowInfo, it is basically accurate enough for highlight
+            print("DEBUG: Updating selection highlight for frame: \(targetWindow.frame)")
+            SwapAnimationController.shared.updateSelectionHighlight(frame: targetWindow.frame)
         }
     }
-    */
     
+    @MainActor
+    private func commitSwap() {
+        // Always remove highlight when committing or cancelling
+        SwapAnimationController.shared.removeSelectionHighlight()
+        
+        guard isSwitching else { return }
+        isSwitching = false
+        
+        // Logic:
+        // 1. If Target is Set (Option+S) -> Swap Target <-> Selected Window
+        // 2. If No Target -> Just Switch Focus (Standard Alt-Tab behavior) - Already done by handleSwitchRequest activation
+        
+        guard AppState.shared.isTargetRegistered, let _ = AppState.shared.targetElement else {
+            print("No target registered. Switch only (no swap).")
+            // Cleanup
+            originalWindow = nil
+            switchableWindows = []
+            return
+        }
+        
+        guard !switchableWindows.isEmpty else { return }
+        
+        let currentTarget = switchableWindows[currentSwitchIndex]
+        
+        print("Committing swap between Target and Selected: \(currentTarget.title)")
+        
+        // Delegate swap logic to AppState (handles animations, rotation, etc.)
+        AppState.shared.swapWithTarget(currentTarget.element)
+        
+        // Cleanup
+        originalWindow = nil
+        switchableWindows = []
+    }
+    
+    // Removed legacy register logic for now or keep it if needed later
     private func handleRegisterShortcut() {
         print("Option+S detected")
         
@@ -123,4 +259,5 @@ class EventManager: ObservableObject {
             }
         }
     }
+
 }
