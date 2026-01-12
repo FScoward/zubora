@@ -50,8 +50,20 @@ class AccessibilityService {
         var results: [WindowInfo] = []
         
         // 2. Iterate running apps
+        // 2. Iterate running apps
+        var availableCGWindows = visibleCGWindows // Copy matched candidates
+        
+        let myPID = NSRunningApplication.current.processIdentifier
+        // print("DEBUG: Current App PID: \(myPID)")
+        
         for app in NSWorkspace.shared.runningApplications {
             guard app.activationPolicy == .regular else { continue }
+            
+            // Skip own app to avoid self-inception
+            if app.processIdentifier == myPID || app.localizedName == "Zubora" {
+                print("DEBUG: Skipping own app (PID \(app.processIdentifier), Name: \(app.localizedName ?? "nil"))")
+                continue
+            }
             
             let pid = app.processIdentifier
             let appElement = getAppElement(pid)
@@ -69,24 +81,48 @@ class AccessibilityService {
                     }
                     
                     // Match AXElement to CGWindow
-                    var matchedCGWindow: CGWindow?
+                    var matchedIndex: Int? = nil
                     
+                    // 1. Try ID Match
                     if let axID = getWindowID(element: windowElement) {
-                        matchedCGWindow = visibleCGWindows.first { $0.id == axID }
-                    }
-                    
-                    if matchedCGWindow == nil, let axFrame = getWindowFrame(element: windowElement) {
-                        // Relaxed frame matching
-                        matchedCGWindow = visibleCGWindows.first { cgWin in
-                            cgWin.ownerPID == pid && // Must belong to same app
-                            abs(cgWin.frame.origin.x - axFrame.origin.x) < 20 &&
-                            abs(cgWin.frame.origin.y - axFrame.origin.y) < 20 &&
-                            abs(cgWin.frame.width - axFrame.width) < 20 &&
-                            abs(cgWin.frame.height - axFrame.height) < 20
+                        matchedIndex = availableCGWindows.firstIndex { $0.id == axID }
+                        if matchedIndex != nil {
+                           // print("DEBUG: MATCHED via ID: \(axID)")
                         }
                     }
                     
-                    if let match = matchedCGWindow {
+                    // 2. Try Frame Match (if no ID match)
+                    if matchedIndex == nil, let axFrame = getWindowFrame(element: windowElement) {
+                        // Relaxed frame matching
+                        matchedIndex = availableCGWindows.firstIndex { cgWin in
+                            // Strict frame matching logging
+                            let match = cgWin.ownerPID == pid && // Must belong to same app
+                                        abs(cgWin.frame.origin.x - axFrame.origin.x) < 5 &&
+                                        abs(cgWin.frame.origin.y - axFrame.origin.y) < 5 &&
+                                        abs(cgWin.frame.width - axFrame.width) < 5 &&
+                                        abs(cgWin.frame.height - axFrame.height) < 5
+                                        
+                            if match {
+                                print("DEBUG: Frame Match Success: AX \(axFrame) vs CG \(cgWin.frame)")
+                            }
+                            return match
+                        }
+                        
+                        if matchedIndex != nil {
+                            print("DEBUG: MATCHED via FRAME: \(getTitle(element: windowElement)) to CGWindow \(matchedIndex!)")
+                        }
+                    }
+                    
+                    if let axID = getWindowID(element: windowElement), matchedIndex == nil {
+                        // Log failure to find ID match if we have an ID
+                         print("DEBUG: Failed to match AXID \(axID) for \(getTitle(element: windowElement))")
+                    }
+                    
+                    if let index = matchedIndex {
+                        let match = availableCGWindows[index]
+                        // Remove from pool to prevent reuse
+                        availableCGWindows.remove(at: index)
+                        
                         let title = getTitle(element: windowElement)
                         let info = WindowInfo(
                             id: match.id,
@@ -128,6 +164,8 @@ class AccessibilityService {
         
         // 3. Set Main
         AXUIElementSetAttributeValue(element, kAXMainAttribute as CFString, kCFBooleanTrue)
+        
+        print("DEBUG: Activated Window Element with Title: \(getTitle(element: element))")
     }
 
     func getElementAtPosition(_ point: CGPoint) -> AXUIElement? {
@@ -304,17 +342,24 @@ class AccessibilityService {
     func getWindowID(element: AXUIElement) -> CGWindowID? {
         var value: AnyObject?
         
-        // Try AXWindowNumber first
-        var err = AXUIElementCopyAttributeValue(element, "AXWindowNumber" as CFString, &value)
-        if err == .success, let number = value as? NSNumber {
-            return CGWindowID(number.intValue)
+        // Check for common variations
+        let attributeNames = ["AXWindowNumber", "_AXWindowNumber", "AXWindowID"]
+        
+        for name in attributeNames {
+             var err = AXUIElementCopyAttributeValue(element, name as CFString, &value)
+             if err == .success, let number = value as? NSNumber {
+                 return CGWindowID(number.intValue)
+             }
         }
         
-        // Fallback: Try _AXWindowNumber (some apps use this)
-        err = AXUIElementCopyAttributeValue(element, "_AXWindowNumber" as CFString, &value)
-        if err == .success, let number = value as? NSNumber {
-            return CGWindowID(number.intValue)
+        // DEBUG: If ID is missing, dump all attributes ONCE to see what's available
+        // Only do this for the first few failures to avoid spam
+        /*
+        var names: CFArray?
+        if AXUIElementCopyAttributeNames(element, &names) == .success, let nsNames = names as? [String] {
+             print("DEBUG: Window Attributes for '\(getTitle(element: element))': \(nsNames)")
         }
+        */
         
         return nil
     }

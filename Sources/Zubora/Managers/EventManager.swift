@@ -9,9 +9,9 @@ class EventManager: ObservableObject {
     private var runLoopSource: CFRunLoopSource?
     private var keyDownMonitor: Any?
     
-    private var isSwitching = false
-    private var switchableWindows: [WindowInfo] = []
-    private var currentSwitchIndex = 0
+    @Published var isSwitching = false
+    @Published var switchableWindows: [WindowInfo] = []
+    @Published var currentSwitchIndex = 0
     private var originalWindow: WindowInfo?
     
     func startMonitoring() {
@@ -143,9 +143,17 @@ class EventManager: ObservableObject {
             isSwitching = true
             
             // 1. Populate switchable windows first
-            switchableWindows = AccessibilityService.shared.getVisibleWindows()
-            
-            // 2. Identify Original Window (Currently Focused) working against the list
+        switchableWindows = AccessibilityService.shared.getVisibleWindows()
+        
+        print("DEBUG: --- Switchable Windows List ---")
+        let myPID = NSRunningApplication.current.processIdentifier
+        print("DEBUG: My PID: \(myPID)")
+        for (i, win) in switchableWindows.enumerated() {
+            print("[\(i)] Title: '\(win.title)' (ID: \(win.id)) PID: \(win.app.processIdentifier) \(win.app.processIdentifier == myPID ? "[SELF]" : "")")
+        }
+        print("DEBUG: -------------------------------")
+        
+        // 2. Identify Original Window (Currently Focused) working against the list
             originalWindow = nil
             
             if let frontApp = NSWorkspace.shared.frontmostApplication {
@@ -190,47 +198,58 @@ class EventManager: ObservableObject {
             } else {
                currentSwitchIndex = 0
             }
+            
+            // Cycle to next window (first press)
+            currentSwitchIndex = (currentSwitchIndex + 1) % switchableWindows.count
+            
+            // Show Panel AFTER setting index - but use async to let SwiftUI process the @Published change
+            DispatchQueue.main.async {
+                WindowSwitcherPanel.shared.show()
+            }
+        } else {
+            // Already switching - just cycle the index
+            // Panel is already visible, but NSHostingView may not update automatically
+            if !switchableWindows.isEmpty {
+                currentSwitchIndex = (currentSwitchIndex + 1) % switchableWindows.count
+                // Force SwiftUI to re-render since @Published may not propagate in nonactivatingPanel
+                WindowSwitcherPanel.shared.refreshContent()
+            }
         }
         
-        // Cycle to next window
+        // Update highlight and log (for all presses)
         if !switchableWindows.isEmpty {
-            currentSwitchIndex = (currentSwitchIndex + 1) % switchableWindows.count
             let targetWindow = switchableWindows[currentSwitchIndex]
-            
-            // Activate it (bring to front/focus)
-            targetWindow.activate()
-            print("Switched focus to window index: \(currentSwitchIndex) title: \(targetWindow.title)")
+            print("Selected window index: \(currentSwitchIndex) title: \(targetWindow.title)")
             
             // Show Highlight on the new selection
-            // Use the frame from WindowInfo, it is basically accurate enough for highlight
-            print("DEBUG: Updating selection highlight for frame: \(targetWindow.frame)")
             SwapAnimationController.shared.updateSelectionHighlight(frame: targetWindow.frame)
         }
     }
     
     @MainActor
     private func commitSwap() {
-        // Always remove highlight when committing or cancelling
+        // ALWAYS hide panel and remove highlight
+        WindowSwitcherPanel.shared.hide()
         SwapAnimationController.shared.removeSelectionHighlight()
         
         guard isSwitching else { return }
         isSwitching = false
         
-        // Logic:
-        // 1. If Target is Set (Option+S) -> Swap Target <-> Selected Window
-        // 2. If No Target -> Just Switch Focus (Standard Alt-Tab behavior) - Already done by handleSwitchRequest activation
+        guard !switchableWindows.isEmpty else { return }
         
+        let currentTarget = switchableWindows[currentSwitchIndex]
+        
+        // 1. Activate the selected window (This is the standard Alt-Tab behavior trigger)
+        currentTarget.activate()
+        
+        // 2. If Target is Set (Option+S) -> Swap Target <-> Selected Window
         guard AppState.shared.isTargetRegistered, let _ = AppState.shared.targetElement else {
-            print("No target registered. Switch only (no swap).")
+            print("No target registered. Just switching focus.")
             // Cleanup
             originalWindow = nil
             switchableWindows = []
             return
         }
-        
-        guard !switchableWindows.isEmpty else { return }
-        
-        let currentTarget = switchableWindows[currentSwitchIndex]
         
         print("Committing swap between Target and Selected: \(currentTarget.title)")
         
