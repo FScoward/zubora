@@ -87,9 +87,11 @@ jobs:
           
           # Generate appcast
           # We use the download-url-prefix to point to the GitHub Release asset
+          printf "%s" "$SPARKLE_ED_PRIVATE_KEY" > ed_key.txt
           $GENERATE_APPCAST release_feed/ \
             --download-url-prefix "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/" \
-            --ed-key-file <(echo "$SPARKLE_ED_PRIVATE_KEY")
+            --ed-key-file ed_key.txt
+          rm ed_key.txt
             
           # Move appcast to a deploy directory
           mkdir public
