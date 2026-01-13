@@ -9,11 +9,29 @@ enum SwapMode: String, CaseIterable, Identifiable {
     var id: String { self.rawValue }
 }
 
+// MARK: - Multi-Space Target Management
+
+struct TargetState {
+    var element: AXUIElement
+    var swapMode: SwapMode
+    var lastSwappedOther: AXUIElement?
+    var originalTargetElement: AXUIElement?
+    var originalTargetFrame: CGRect?
+    var swapChain: [(element: AXUIElement, originalFrame: CGRect)]
+}
+
 @MainActor
 class AppState: ObservableObject {
     static let shared = AppState()
     
-    @Published var swapMode: SwapMode = .swapAll
+    @Published var swapMode: SwapMode = .swapAll {
+        didSet {
+            // Sync to current target state if applicable
+            if let windowID = targetWindowID {
+                storedTargets[windowID]?.swapMode = swapMode
+            }
+        }
+    }
     @Published var isTargetRegistered: Bool = false
     @Published var targetWindowFrame: CGRect?
     @Published var modifierFlags: NSEvent.ModifierFlags = [] {
@@ -23,7 +41,7 @@ class AppState: ObservableObject {
     }
     
     // Multi-Space Target Management
-    private var storedTargets: [CGWindowID: AXUIElement] = [:]
+    private var storedTargets: [CGWindowID: TargetState] = [:]
     
     // The target currently active on the screen (if any)
     var targetElement: AXUIElement? {
@@ -35,13 +53,59 @@ class AppState: ObservableObject {
     // Optimization: Cache ID of current target to avoid re-fetching (expensive fallback)
     private var targetWindowID: CGWindowID?
     
-    private var lastSwappedOther: AXUIElement? // Remember the last swap partner
+    // These now serve as volatile mirrors of the current TargetState for convenience/logic
+    private var lastSwappedOther: AXUIElement? {
+        get { targetWindowID.flatMap { storedTargets[$0]?.lastSwappedOther } }
+        set { if let id = targetWindowID { storedTargets[id]?.lastSwappedOther = newValue } }
+    }
+    private var originalTargetElement: AXUIElement? {
+        get { targetWindowID.flatMap { storedTargets[$0]?.originalTargetElement } }
+        set { if let id = targetWindowID { storedTargets[id]?.originalTargetElement = newValue } }
+    }
+    private var originalTargetFrame: CGRect? {
+        get { targetWindowID.flatMap { storedTargets[$0]?.originalTargetFrame } }
+        set { if let id = targetWindowID { storedTargets[id]?.originalTargetFrame = newValue } }
+    }
+    private var swapChain: [(element: AXUIElement, originalFrame: CGRect)] {
+        get { targetWindowID.flatMap { storedTargets[$0]?.swapChain } ?? [] }
+        set { if let id = targetWindowID { storedTargets[id]?.swapChain = newValue } }
+    }
+    
     private var frameUpdateTimer: Timer?
     
-    // Rotation chain state
-    private var originalTargetElement: AXUIElement?  // The first target (A)
-    private var originalTargetFrame: CGRect?         // A's original position
-    private var swapChain: [(element: AXUIElement, originalFrame: CGRect)] = []  // Swap history
+    // MARK: - Target State Helpers
+    
+    private func updateNewTargetState(newElement: AXUIElement, newID: CGWindowID, oldState: TargetState?) {
+        self.targetElement = newElement
+        self.targetWindowID = newID
+        
+        if let old = oldState {
+            // INHERIT history and original target info from the previous occupant of this slot
+            let newState = TargetState(
+                element: newElement,
+                swapMode: old.swapMode,
+                lastSwappedOther: old.element, // The window that just left the position
+                originalTargetElement: old.originalTargetElement,
+                originalTargetFrame: old.originalTargetFrame,
+                swapChain: old.swapChain
+            )
+            
+            self.storedTargets[newID] = newState
+            self.swapMode = old.swapMode // Restore UI mode
+        } else {
+            // If no old state (unlikely during swap), use current mode or existing state
+            if self.storedTargets[newID] == nil {
+                self.storedTargets[newID] = TargetState(
+                    element: newElement,
+                    swapMode: self.swapMode,
+                    lastSwappedOther: nil,
+                    originalTargetElement: newElement,
+                    originalTargetFrame: AccessibilityService.shared.getWindowFrame(element: newElement),
+                    swapChain: []
+                )
+            }
+        }
+    }
     
     private init() {
         let savedFlags = UserDefaults.standard.integer(forKey: "ModifierFlags")
@@ -81,22 +145,26 @@ class AppState: ObservableObject {
             return
         }
         
-        // Store in dictionary (overwriting if exists, which is fine)
-        storedTargets[windowID] = window
+        // Initialize state for new target
+        let frame = AccessibilityService.shared.getWindowFrame(element: window)
+        let state = TargetState(
+            element: window,
+            swapMode: self.swapMode, // Inherit current global setting initially
+            lastSwappedOther: nil,
+            originalTargetElement: window,
+            originalTargetFrame: frame,
+            swapChain: []
+        )
+        
+        storedTargets[windowID] = state
         print("Target Registered: ID \(windowID). Total stored targets: \(storedTargets.count)")
         
         // Immediately make it active since user just clicked it
         self.targetElement = window
         self.targetWindowID = windowID
-        self.lastSwappedOther = nil // Reset on new registration
         
-        // Initialize rotation chain for this new target
-        self.originalTargetElement = window
-        self.swapChain = []
-        
-        if let frame = AccessibilityService.shared.getWindowFrame(element: window) {
-            self.targetWindowFrame = frame
-            self.originalTargetFrame = frame
+        if let f = frame {
+            self.targetWindowFrame = f
             
             // Check visibility state (covers Ghosting/Spaces handling)
             let highlightID = SwapAnimationController.shared.highlightWindowID
@@ -105,9 +173,9 @@ class AppState: ObservableObject {
             // Should be visible since we just clicked it, but good to run logic
             switch visibility {
             case .visible:
-                SwapAnimationController.shared.updateTargetHighlight(frame: frame, windowID: windowID, isCovered: false)
+                SwapAnimationController.shared.updateTargetHighlight(frame: f, windowID: windowID, isCovered: false)
             case .covered:
-                SwapAnimationController.shared.updateTargetHighlight(frame: frame, windowID: windowID, isCovered: true)
+                SwapAnimationController.shared.updateTargetHighlight(frame: f, windowID: windowID, isCovered: true)
             case .notOnScreen:
                 SwapAnimationController.shared.hideTargetHighlight()
             }
@@ -166,16 +234,16 @@ class AppState: ObservableObject {
         var foundNewCovered = false
         
         // Iterate dictionary
-        for (id, element) in storedTargets {
+        for (id, state) in storedTargets {
             // Skip the one we just checked (if any)
             if let currentID = targetWindowID, id == currentID { continue }
             
-            let (visible, frame, covered) = checkCandidate(element, id: id)
+            let (visible, frame, covered) = checkCandidate(state.element, id: id)
             if visible, let f = frame {
                 print("DEBUG: Found visible stored target ID \(id) on this Space. Activating.")
                 
                 foundNewTargetKey = id
-                foundNewTargetElement = element
+                foundNewTargetElement = state.element
                 foundNewFrame = f
                 foundNewCovered = covered
                 break
@@ -187,6 +255,11 @@ class AppState: ObservableObject {
             self.targetElement = newElement
             self.targetWindowID = newID
             self.targetWindowFrame = f
+            
+            // Sync global swapMode to what was saved for this target
+            if let targetState = storedTargets[newID] {
+                self.swapMode = targetState.swapMode
+            }
             
             SwapAnimationController.shared.updateTargetHighlight(frame: f, windowID: newID, isCovered: foundNewCovered)
         } else {
@@ -307,6 +380,8 @@ class AppState: ObservableObject {
         // Closure to perform the actual window move
         let moveWindows = { [self] in
             print("DEBUG: Setting frames...")
+            let oldState = targetWindowID.flatMap { storedTargets[$0] }
+            
             if swapMode == .swapAll {
                 print("DEBUG: Setting Target Frame to \(newTargetFrame)")
                 AccessibilityService.shared.setWindowFrame(element: target, frame: newTargetFrame)
@@ -321,8 +396,9 @@ class AppState: ObservableObject {
             print("DEBUG: Frames set.")
             
             // The window that moved INTO the target position becomes the new target
-            self.targetElement = other
-            print("DEBUG: New target is now the window that moved into the slot")
+            if let newID = AccessibilityService.shared.getWindowID(element: other) {
+                updateNewTargetState(newElement: other, newID: newID, oldState: oldState)
+            }
             
             // Resume frame tracking
             self.startFrameTracking()
@@ -444,7 +520,10 @@ class AppState: ObservableObject {
         swapChain.append((element: newWindow, originalFrame: newWindowFrame))
         
         // New window becomes the new target
-        self.targetElement = newWindow
+        if let newID = AccessibilityService.shared.getWindowID(element: newWindow) {
+            let oldState = targetWindowID.flatMap { storedTargets[$0] }
+            updateNewTargetState(newElement: newWindow, newID: newID, oldState: oldState)
+        }
         
         print("DEBUG: Rotation complete.")
         print("  - New Target: \(AccessibilityService.shared.getTitle(element: newWindow))")

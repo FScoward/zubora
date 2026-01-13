@@ -94,14 +94,14 @@ class AccessibilityService {
                     // 2. Try Frame Match (if no ID match)
                     if matchedIndex == nil, let axFrame = getWindowFrame(element: windowElement) {
                         // Relaxed frame matching
+                        let tolerance: CGFloat = 5.0
                         matchedIndex = availableCGWindows.firstIndex { cgWin in
-                            // Strict frame matching logging
-                            let match = cgWin.ownerPID == pid && // Must belong to same app
-                                        abs(cgWin.frame.origin.x - axFrame.origin.x) < 5 &&
-                                        abs(cgWin.frame.origin.y - axFrame.origin.y) < 5 &&
-                                        abs(cgWin.frame.width - axFrame.width) < 5 &&
-                                        abs(cgWin.frame.height - axFrame.height) < 5
-                                        
+                            let match = cgWin.ownerPID == pid &&
+                                        abs(cgWin.frame.origin.x - axFrame.origin.x) <= tolerance &&
+                                        abs(cgWin.frame.origin.y - axFrame.origin.y) <= tolerance &&
+                                        abs(cgWin.frame.width - axFrame.width) <= tolerance &&
+                                        abs(cgWin.frame.height - axFrame.height) <= tolerance
+                            
                             if match {
                                 print("DEBUG: Frame Match Success: AX \(axFrame) vs CG \(cgWin.frame)")
                             }
