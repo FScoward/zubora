@@ -346,20 +346,63 @@ class AccessibilityService {
         let attributeNames = ["AXWindowNumber", "_AXWindowNumber", "AXWindowID"]
         
         for name in attributeNames {
-             var err = AXUIElementCopyAttributeValue(element, name as CFString, &value)
-             if err == .success, let number = value as? NSNumber {
+             let err = AXUIElementCopyAttributeValue(element, name as CFString, &value)
+            if err == .success, let number = value as? NSNumber {
                  return CGWindowID(number.intValue)
              }
         }
         
-        // DEBUG: If ID is missing, dump all attributes ONCE to see what's available
-        // Only do this for the first few failures to avoid spam
-        /*
+        // Fallback: If AXWindowNumber is missing (e.g. Orion, some Electron apps),
+        // try to find the window in CGWindowList by matching PID and Frame.
+        
+        // 1. Get PID
+        var pid: pid_t = 0
+        if AXUIElementGetPid(element, &pid) != .success {
+             print("DEBUG: Failed to get PID for fallback ID lookup")
+             return nil
+        }
+        
+        // 2. Get Frame
+        guard let axFrame = getWindowFrame(element: element) else {
+             print("DEBUG: Failed to get Frame for fallback ID lookup")
+             return nil
+        }
+        
+        // 3. Query CGWindowList for this PID
+        guard let windowInfos = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
+            return nil
+        }
+        
+        // 4. Find match
+        for info in windowInfos {
+            guard let ownerPID = info[kCGWindowOwnerPID as String] as? Int32,
+                  ownerPID == pid else { continue }
+            
+            if let bounds = info[kCGWindowBounds as String] as? [String: CGFloat],
+               let x = bounds["X"], let y = bounds["Y"],
+               let w = bounds["Width"], let h = bounds["Height"] {
+                
+                // Match Frame with tolerance
+                if abs(x - axFrame.origin.x) < 10 &&
+                   abs(y - axFrame.origin.y) < 10 &&
+                   abs(w - axFrame.width) < 10 &&
+                   abs(h - axFrame.height) < 10 {
+                    
+                    if let id = info[kCGWindowNumber as String] as? CGWindowID {
+                        // print("DEBUG: Recovered Window ID \(id) via Frame Matching for PID \(pid)")
+                        return id
+                    }
+                }
+            }
+        }
+        
+        print("DEBUG: Failed to find matching CGWindow for Frame: \(axFrame) PID: \(pid)")
+        
+        // DEBUG LOGGING (Restored for unmatched cases)
         var names: CFArray?
         if AXUIElementCopyAttributeNames(element, &names) == .success, let nsNames = names as? [String] {
              print("DEBUG: Window Attributes for '\(getTitle(element: element))': \(nsNames)")
         }
-        */
         
         return nil
     }
@@ -387,23 +430,46 @@ class AccessibilityService {
         return nil
     }
     
-    /// Check if the target window is covered by other windows
-    /// Uses frame-based matching since AXWindowNumber may not always be available
+    enum WindowVisibility {
+        case visible
+        case covered
+        case notOnScreen
+    }
+
+    /// Check the visibility state of the target window
     /// - Parameter excludeWindowID: Optional window ID to exclude from coverage check (e.g., highlight window)
-    func isWindowCovered(element: AXUIElement, excludeWindowID: CGWindowID? = nil) -> Bool {
+    func checkWindowVisibility(element: AXUIElement, excludeWindowID: CGWindowID? = nil) -> WindowVisibility {
         guard let targetFrame = getWindowFrame(element: element) else {
-            return false
+            return .notOnScreen
         }
         
         // Get all on-screen windows ordered from front to back
         guard let windowList = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
-            return false
+            return .notOnScreen
         }
         
         // Find the target window in the list by matching its frame
         var foundTargetIndex: Int? = nil
         
+        // Pre-calculate target frame props for fast matching
+        let tx = targetFrame.origin.x
+        let ty = targetFrame.origin.y
+        let tw = targetFrame.width
+        let th = targetFrame.height
+        
+        // Try to match by ID first if available
+        let targetID = getWindowID(element: element)
+        
         for (index, windowInfo) in windowList.enumerated() {
+            // Match by ID
+            if let targetID = targetID,
+               let windowID = windowInfo[kCGWindowNumber as String] as? CGWindowID,
+               windowID == targetID {
+                foundTargetIndex = index
+                break
+            }
+            
+            // Match by Frame
             guard let boundsDict = windowInfo[kCGWindowBounds as String] as? [String: CGFloat],
                   let x = boundsDict["X"],
                   let y = boundsDict["Y"],
@@ -412,15 +478,13 @@ class AccessibilityService {
                 continue
             }
             
-            let windowFrame = CGRect(x: x, y: y, width: width, height: height)
-            
             // Check if this window's frame matches the target frame (with small tolerance)
-            if abs(windowFrame.origin.x - targetFrame.origin.x) < 5 &&
-               abs(windowFrame.origin.y - targetFrame.origin.y) < 5 &&
-               abs(windowFrame.width - targetFrame.width) < 5 &&
-               abs(windowFrame.height - targetFrame.height) < 5 {
+            if abs(x - tx) < 10 &&
+               abs(y - ty) < 10 &&
+               abs(width - tw) < 10 &&
+               abs(height - th) < 10 {
                 
-                // Skip our own highlight window
+                // Skip our own highlight window if it accidentally matches frame (unlikely but possible)
                 if let windowID = windowInfo[kCGWindowNumber as String] as? CGWindowID,
                    let excludeID = excludeWindowID,
                    windowID == excludeID {
@@ -433,8 +497,8 @@ class AccessibilityService {
         }
         
         guard let targetIndex = foundTargetIndex else {
-            // Target window not found in list - maybe minimized or hidden
-            return false
+            // Target window not found in list -> Not on current visible screen
+            return .notOnScreen
         }
         
         // Check all windows above the target (lower index = higher in z-order)
@@ -456,29 +520,43 @@ class AccessibilityService {
                 continue
             }
             
-            // Skip small windows (like menu bar items)
-            if width < 10 || height < 10 {
+            // Skip small windows
+            if width < 10 || height < 10 { continue }
+            
+            // Skip invisible windows
+            if let alpha = windowInfo[kCGWindowAlpha as String] as? Double, alpha < 0.05 {
+                continue
+            }
+            
+            // Skip system windows (Menu Bar, Dock, etc are usually Layer > 10)
+            let layer = windowInfo[kCGWindowLayer as String] as? Int ?? 0
+            if layer >= 10 {
                 continue
             }
             
             let windowFrame = CGRect(x: x, y: y, width: width, height: height)
             
-            // Check if this window overlaps with the target
+            // Check coverage
             let intersection = windowFrame.intersection(targetFrame)
             if !intersection.isNull {
                 let overlapArea = intersection.width * intersection.height
                 let targetArea = targetFrame.width * targetFrame.height
                 let overlapPercent = overlapArea / targetArea
-                
+
                 // If overlap is more than 0.5% of target area, consider it covered
-                // (User requested strictly, meaning "hides easily")
                 if overlapPercent > 0.005 {
-                    return true
+                    return .covered
                 }
+            }
             }
         }
         
-        return false
+        return .visible
+    }
+    
+    // Deprecated compatibility wrapper if needed, but we will update call sites
+    func isWindowCovered(element: AXUIElement, excludeWindowID: CGWindowID? = nil) -> Bool {
+        return checkWindowVisibility(element: element, excludeWindowID: excludeWindowID) == .covered
     }
     
     private func logSizeConstraints(_ element: AXUIElement) {

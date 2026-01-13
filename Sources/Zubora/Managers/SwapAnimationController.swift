@@ -6,7 +6,7 @@ import QuartzCore
 class SwapAnimationController {
     static let shared = SwapAnimationController()
     
-    private var animationWindow: NSPanel?
+    private var animationWindows: [NSPanel] = []
     private let animationDuration: CFTimeInterval = 0.6 // Increased duration for better visibility
     
     /// Rich animation - shows glowing borders and sparkles at target positions
@@ -15,21 +15,69 @@ class SwapAnimationController {
         targetFrame2: CGRect,
         completion: @escaping () -> Void
     ) {
-        // Use primary screen for coordinate conversion to ensure consistency with global coordinates
-        guard let screen = NSScreen.screens.first else {
+        // Clear previous animations
+        clearAnimationWindows()
+        
+        // Create panels for each frame
+        let panel1 = createAnimationPanel(for: targetFrame1, color: NSColor.systemBlue)
+        let panel2 = createAnimationPanel(for: targetFrame2, color: NSColor.systemCyan)
+        
+        self.animationWindows = [panel1, panel2]
+        
+        panel1.orderFront(nil)
+        panel2.orderFront(nil)
+        
+        // Animate: Pop in, then fade out
+        CATransaction.begin()
+        CATransaction.setAnimationDuration(animationDuration)
+        CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut))
+        CATransaction.setCompletionBlock {
+            self.clearAnimationWindows()
             completion()
-            return
         }
         
-        // Clean up any existing animation window to prevent overlap
-        if let existingPanel = animationWindow {
-            existingPanel.orderOut(nil)
-            animationWindow = nil
+        for panel in [panel1, panel2] {
+            guard let layer = panel.contentView?.layer else { continue }
+            
+            // 1. Fade Out (Opacity)
+            let fadeOut = CABasicAnimation(keyPath: "opacity")
+            fadeOut.fromValue = 1.0
+            fadeOut.toValue = 0.0
+            fadeOut.duration = animationDuration
+            fadeOut.fillMode = .forwards
+            fadeOut.isRemovedOnCompletion = false
+            
+            layer.add(fadeOut, forKey: "fadeOut")
+            
+            // 2. Scale Pop (Transform) - Optional subtle pop effect
+            let scaleAnim = CAKeyframeAnimation(keyPath: "transform.scale")
+            scaleAnim.values = [0.9, 1.05, 1.0]
+            scaleAnim.keyTimes = [0, 0.4, 1.0]
+            scaleAnim.duration = animationDuration
+            
+            layer.add(scaleAnim, forKey: "pop")
         }
         
-        // Create Panel
+        CATransaction.commit()
+    }
+    
+    private func clearAnimationWindows() {
+        for window in animationWindows {
+            window.orderOut(nil)
+        }
+        animationWindows.removeAll()
+    }
+    
+    private func createAnimationPanel(for frame: CGRect, color: NSColor) -> NSPanel {
+        // Find the screen that contains this frame (or closest to it)
+        // Note: We use global coordinates, so we just need to convert to Cocoa's bottom-left origin
+        // But since we are creating a window exactly at 'frame', we just need to flip Y.
+        
+        let screenHeight = NSScreen.screens.first?.frame.height ?? 0
+        let nsFrame = convertToNSFrame(frame: frame, screenHeight: screenHeight)
+        
         let panel = NSPanel(
-            contentRect: screen.frame,
+            contentRect: nsFrame,
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -39,91 +87,53 @@ class SwapAnimationController {
         panel.hasShadow = false
         panel.level = .init(Int(CGWindowLevelKey.floatingWindow.rawValue) + 1)
         panel.ignoresMouseEvents = true
-        panel.collectionBehavior = [.canJoinAllSpaces, .ignoresCycle]
+        panel.collectionBehavior = [.transient, .ignoresCycle] // Allow disjoint spaces
         
-        let contentView = NSView(frame: screen.frame)
+        let contentView = NSView(frame: NSRect(origin: .zero, size: nsFrame.size))
         contentView.wantsLayer = true
         contentView.layer?.backgroundColor = .clear
         panel.contentView = contentView
         
-        guard let rootLayer = contentView.layer else {
-            completion()
-            return
-        }
-        
-        let screenHeight = screen.frame.height
-        
-        // Convert frames
-        let nsFrame1 = convertToNSFrame(frame: targetFrame1, screenHeight: screenHeight)
-        let nsFrame2 = convertToNSFrame(frame: targetFrame2, screenHeight: screenHeight)
+        guard let rootLayer = contentView.layer else { return panel }
         
         // Create GLOWING border layers
-        let border1 = createBorderLayer(frame: nsFrame1, color: NSColor.systemBlue)
-        let border2 = createBorderLayer(frame: nsFrame2, color: NSColor.systemCyan)
-        
-        rootLayer.addSublayer(border1)
-        rootLayer.addSublayer(border2)
+        let border = createBorderLayer(frame: contentView.bounds, color: color)
+        rootLayer.addSublayer(border)
         
         // Create SPARKLE emitters
-        let emitter1 = createSparkleEmitter(frame: nsFrame1, color: NSColor.systemBlue.cgColor)
-        let emitter2 = createSparkleEmitter(frame: nsFrame2, color: NSColor.systemCyan.cgColor)
+        let emitter = createSparkleEmitter(frame: contentView.bounds, color: color.cgColor)
+        rootLayer.addSublayer(emitter)
         
-        rootLayer.addSublayer(emitter1)
-        rootLayer.addSublayer(emitter2)
-        
-        self.animationWindow = panel
-        panel.orderFront(nil)
-        
-        // Animate: Pop in, then fade out
-        CATransaction.begin()
-        CATransaction.setAnimationDuration(animationDuration)
-        CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut))
-        CATransaction.setCompletionBlock {
-            panel.orderOut(nil)
-            self.animationWindow = nil
-            completion()
-        }
-        
-        // 1. Fade Out (Opacity)
-        let fadeOut = CABasicAnimation(keyPath: "opacity")
-        fadeOut.fromValue = 1.0
-        fadeOut.toValue = 0.0
-        fadeOut.duration = animationDuration
-        fadeOut.fillMode = .forwards
-        fadeOut.isRemovedOnCompletion = false
-        
-        // 2. Scale Pop (Transform) - Optional subtle pop effect
-        let scaleAnim = CAKeyframeAnimation(keyPath: "transform.scale")
-        scaleAnim.values = [0.9, 1.05, 1.0]
-        scaleAnim.keyTimes = [0, 0.4, 1.0]
-        scaleAnim.duration = animationDuration
-        
-        border1.add(fadeOut, forKey: "fadeOut")
-        border1.add(scaleAnim, forKey: "pop")
-        
-        border2.add(fadeOut, forKey: "fadeOut")
-        border2.add(scaleAnim, forKey: "pop")
-        
-        // Emitters fade out too
-        emitter1.add(fadeOut, forKey: "fadeOut")
-        emitter2.add(fadeOut, forKey: "fadeOut")
-        
-        CATransaction.commit()
+        return panel
     }
 
     private let RainbowLayerName = "RainbowTargetLayer"
 
     // MARK: - Persistent Target Highlight
     
+    // MARK: - Persistent Target Highlight
+    
     private var targetHighlightWindow: NSPanel?
     private var rainbowLayer: CALayer?
+    private var targetWindowID: CGWindowID? // Track the ID of the window we are highlighting
     
     /// Get the window ID of the highlight window, used to exclude it from coverage checks
     var highlightWindowID: CGWindowID? {
         targetHighlightWindow.map { CGWindowID($0.windowNumber) }
     }
     
-    func updateTargetHighlight(frame: CGRect, isCovered: Bool = false) {
+    // NOTE: Space observation is now handled by polling in AppState via AccessibilityService.checkWindowVisibility
+    
+    func hideTargetHighlight() {
+        guard let window = targetHighlightWindow else { return }
+        if window.alphaValue > 0 {
+            window.alphaValue = 0
+        }
+    }
+    
+    func updateTargetHighlight(frame: CGRect, windowID: CGWindowID?, isCovered: Bool = false) {
+        self.targetWindowID = windowID
+        
         guard let screen = NSScreen.screens.first else { return }
         let screenHeight = screen.frame.height
         let nsFrame = convertToNSFrame(frame: frame, screenHeight: screenHeight)
@@ -143,9 +153,9 @@ class SwapAnimationController {
             panel.backgroundColor = .clear
             panel.isOpaque = false
             panel.hasShadow = false
-            panel.level = .floating
+            panel.level = .popUpMenu // Elevated level
             panel.ignoresMouseEvents = true
-            panel.collectionBehavior = [.canJoinAllSpaces, .ignoresCycle]
+            panel.collectionBehavior = [.transient, .ignoresCycle, .moveToActiveSpace]
             
             let contentView = NSView(frame: nsFrame)
             contentView.wantsLayer = true
@@ -157,9 +167,14 @@ class SwapAnimationController {
             panel.orderFront(nil)
         }
         
-        // Update Window Frame
+        // Update Window Frame if needed
         if window.frame != nsFrame {
             window.setFrame(nsFrame, display: true)
+        }
+        
+        // Make sure it's visible (alpha 1) if we are updating it (unless caller explicitly hid it, but here we assume update = show)
+        if window.alphaValue < 1.0 {
+            window.alphaValue = 1.0
         }
         
         // Dynamically adjust window level based on coverage
@@ -169,17 +184,19 @@ class SwapAnimationController {
                 window.level = .normal
             }
         } else {
-            // When target is visible, use floating level to stay above it
-            if window.level != .floating {
-                window.level = .floating
-                window.orderFront(nil)
+            // When target is visible, use popUpMenu level to stay above it
+            if window.level != .popUpMenu {
+                window.level = .popUpMenu
             }
+            // Always bring to front when visible to fight against target window activation
+            window.orderFront(nil)
         }
         
         // Update Layer
         guard let rootLayer = window.contentView?.layer else { return }
         
         CATransaction.begin()
+        // ... (Layer update logic remains same) ...
         CATransaction.setDisableActions(true)
         
         var foundRainbow: CALayer? = nil
@@ -236,6 +253,7 @@ class SwapAnimationController {
             window.orderOut(nil)
             targetHighlightWindow = nil
             rainbowLayer = nil
+            targetWindowID = nil
         }
     }
 
@@ -271,7 +289,7 @@ class SwapAnimationController {
             panel.level = .popUpMenu // Higher level to ensure it stays on top
             panel.hidesOnDeactivate = false // Prevent hiding when other apps activate
             panel.ignoresMouseEvents = true
-            panel.collectionBehavior = [.canJoinAllSpaces, .ignoresCycle]
+            panel.collectionBehavior = [.transient, .ignoresCycle, .moveToActiveSpace]
             
             let contentView = NSView(frame: nsFrame)
             contentView.wantsLayer = true

@@ -22,7 +22,19 @@ class AppState: ObservableObject {
         }
     }
     
-    var targetElement: AXUIElement?
+    // Multi-Space Target Management
+    private var storedTargets: [CGWindowID: AXUIElement] = [:]
+    
+    // The target currently active on the screen (if any)
+    var targetElement: AXUIElement? {
+        didSet {
+            isTargetRegistered = (targetElement != nil)
+            if targetElement == nil { targetWindowID = nil }
+        }
+    }
+    // Optimization: Cache ID of current target to avoid re-fetching (expensive fallback)
+    private var targetWindowID: CGWindowID?
+    
     private var lastSwappedOther: AXUIElement? // Remember the last swap partner
     private var frameUpdateTimer: Timer?
     
@@ -39,6 +51,20 @@ class AppState: ObservableObject {
             // Default: Option + Control
             self.modifierFlags = [.option, .control]
         }
+        
+        // Observe Space changes for immediate update
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self,
+            selector: #selector(handleSpaceChange),
+            name: NSWorkspace.activeSpaceDidChangeNotification,
+            object: nil
+        )
+    }
+    
+    @objc private func handleSpaceChange() {
+        Task { @MainActor in
+            self.updateTargetFrame()
+        }
     }
     
     func toggleModifier(_ flag: NSEvent.ModifierFlags) {
@@ -50,32 +76,48 @@ class AppState: ObservableObject {
     }
     
     func registerTarget(window: AXUIElement) {
+        guard let windowID = AccessibilityService.shared.getWindowID(element: window) else {
+            print("Error: Could not get Window ID for registration")
+            return
+        }
+        
+        // Store in dictionary (overwriting if exists, which is fine)
+        storedTargets[windowID] = window
+        print("Target Registered: ID \(windowID). Total stored targets: \(storedTargets.count)")
+        
+        // Immediately make it active since user just clicked it
         self.targetElement = window
-        self.isTargetRegistered = true
+        self.targetWindowID = windowID
         self.lastSwappedOther = nil // Reset on new registration
         
-        // Initialize rotation chain
+        // Initialize rotation chain for this new target
         self.originalTargetElement = window
         self.swapChain = []
         
         if let frame = AccessibilityService.shared.getWindowFrame(element: window) {
             self.targetWindowFrame = frame
-            self.originalTargetFrame = frame  // Remember original target position
-            print("Target registered: \(frame)")
+            self.originalTargetFrame = frame
             
-            // Check if target is covered by other windows
+            // Check visibility state (covers Ghosting/Spaces handling)
             let highlightID = SwapAnimationController.shared.highlightWindowID
-            let isCovered = AccessibilityService.shared.isWindowCovered(element: window, excludeWindowID: highlightID)
+            let visibility = AccessibilityService.shared.checkWindowVisibility(element: window, excludeWindowID: highlightID)
             
-            // Show persistent target highlight
-            SwapAnimationController.shared.updateTargetHighlight(frame: frame, isCovered: isCovered)
+            // Should be visible since we just clicked it, but good to run logic
+            switch visibility {
+            case .visible:
+                SwapAnimationController.shared.updateTargetHighlight(frame: frame, windowID: windowID, isCovered: false)
+            case .covered:
+                SwapAnimationController.shared.updateTargetHighlight(frame: frame, windowID: windowID, isCovered: true)
+            case .notOnScreen:
+                SwapAnimationController.shared.hideTargetHighlight()
+            }
         }
         startFrameTracking()
     }
     
     private func startFrameTracking() {
         stopFrameTracking()
-        frameUpdateTimer = Timer.scheduledTimer(withTimeInterval: 0.016, repeats: true) { [weak self] _ in
+        frameUpdateTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in // Relaxed timer to 50ms for multi-check
             Task { @MainActor in
                 self?.updateTargetFrame()
             }
@@ -88,18 +130,73 @@ class AppState: ObservableObject {
     }
     
     private func updateTargetFrame() {
-        guard let target = targetElement else { return }
-        if let frame = AccessibilityService.shared.getWindowFrame(element: target) {
-            if frame != targetWindowFrame {
-                targetWindowFrame = frame
+        // 1. If we have a current target, check its status first (Optimization)
+        // 2. If current target is gone (off-screen), scan for other candidates
+        
+        let highlightID = SwapAnimationController.shared.highlightWindowID
+        
+        // Helper to validate a candidate
+        func checkCandidate(_ element: AXUIElement, id: CGWindowID) -> (isVisible: Bool, frame: CGRect?, isCovered: Bool) {
+            guard let frame = AccessibilityService.shared.getWindowFrame(element: element) else { return (false, nil, false) }
+            let state = AccessibilityService.shared.checkWindowVisibility(element: element, excludeWindowID: highlightID)
+            return (state != .notOnScreen, frame, state == .covered)
+        }
+        
+        // A. Check Current Target (using Cached ID)
+        var currentTargetStillValid = false
+        if let current = targetElement, let currentID = targetWindowID {
+            let (visible, frame, covered) = checkCandidate(current, id: currentID)
+            
+            if visible, let f = frame {
+                // Update State
+                if f != targetWindowFrame { targetWindowFrame = f }
+                SwapAnimationController.shared.updateTargetHighlight(frame: f, windowID: currentID, isCovered: covered)
+                currentTargetStillValid = true
             }
+        }
+        
+        if currentTargetStillValid {
+            return
+        }
+        
+        // B. Current target not valid/visible -> Scan stored targets
+        var foundNewTargetKey: CGWindowID? = nil
+        var foundNewTargetElement: AXUIElement? = nil
+        var foundNewFrame: CGRect? = nil
+        var foundNewCovered = false
+        
+        // Iterate dictionary
+        for (id, element) in storedTargets {
+            // Skip the one we just checked (if any)
+            if let currentID = targetWindowID, id == currentID { continue }
             
-            // Check if target is covered by other windows
-            let highlightID = SwapAnimationController.shared.highlightWindowID
-            let isCovered = AccessibilityService.shared.isWindowCovered(element: target, excludeWindowID: highlightID)
+            let (visible, frame, covered) = checkCandidate(element, id: id)
+            if visible, let f = frame {
+                print("DEBUG: Found visible stored target ID \(id) on this Space. Activating.")
+                
+                foundNewTargetKey = id
+                foundNewTargetElement = element
+                foundNewFrame = f
+                foundNewCovered = covered
+                break
+            }
+        }
+        
+        if let newElement = foundNewTargetElement, let newID = foundNewTargetKey, let f = foundNewFrame {
+            // Activate new target
+            self.targetElement = newElement
+            self.targetWindowID = newID
+            self.targetWindowFrame = f
             
-            // Continuous update for target highlight tracking
-            SwapAnimationController.shared.updateTargetHighlight(frame: frame, isCovered: isCovered)
+            SwapAnimationController.shared.updateTargetHighlight(frame: f, windowID: newID, isCovered: foundNewCovered)
+        } else {
+            // No targets visible on this screen
+            if targetElement != nil {
+                print("DEBUG: No targets visible. Deactivating.")
+                targetElement = nil
+                // targetWindowID is cleared in didSet
+            }
+            SwapAnimationController.shared.hideTargetHighlight()
         }
     }
     
