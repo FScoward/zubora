@@ -548,7 +548,6 @@ class AccessibilityService {
                     return .covered
                 }
             }
-            }
         }
         
         return .visible
