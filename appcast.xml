@@ -1,0 +1,14 @@
+<?xml version="1.0" standalone="yes"?>
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+    <channel>
+        <title>Zubora</title>
+        <item>
+            <title>0.1.0-beta.4</title>
+            <pubDate>Tue, 13 Jan 2026 12:59:03 +0000</pubDate>
+            <sparkle:version>1</sparkle:version>
+            <sparkle:shortVersionString>0.1.0-beta.4</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/FScoward/zubora/releases/download/v0.1.0-beta.4/Zubora.zip" length="5308903" type="application/octet-stream" sparkle:edSignature="+Mq6P1Kr16WpIQWEaw/oyjCnaDpZ3u9wC1yyKMRcRMcM4BkInsfqEozPihjyszyRVQcMWibpxjO3GJxCXq4oDQ=="/>
+        </item>
+    </channel>
+</rss>
