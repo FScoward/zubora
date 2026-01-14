@@ -18,6 +18,7 @@ struct TargetState {
     var originalTargetElement: AXUIElement?
     var originalTargetFrame: CGRect?
     var swapChain: [(element: AXUIElement, originalFrame: CGRect)]
+    var lastAccessDate: Date
 }
 
 @MainActor
@@ -87,7 +88,8 @@ class AppState: ObservableObject {
                 lastSwappedOther: old.element, // The window that just left the position
                 originalTargetElement: old.originalTargetElement,
                 originalTargetFrame: old.originalTargetFrame,
-                swapChain: old.swapChain
+                swapChain: old.swapChain,
+                lastAccessDate: Date()
             )
             
             self.storedTargets[newID] = newState
@@ -101,7 +103,8 @@ class AppState: ObservableObject {
                     lastSwappedOther: nil,
                     originalTargetElement: newElement,
                     originalTargetFrame: AccessibilityService.shared.getWindowFrame(element: newElement),
-                    swapChain: []
+                    swapChain: [],
+                    lastAccessDate: Date()
                 )
             }
         }
@@ -153,7 +156,8 @@ class AppState: ObservableObject {
             lastSwappedOther: nil,
             originalTargetElement: window,
             originalTargetFrame: frame,
-            swapChain: []
+            swapChain: [],
+            lastAccessDate: Date()
         )
         
         storedTargets[windowID] = state
@@ -219,6 +223,13 @@ class AppState: ObservableObject {
                 // Update State
                 if f != targetWindowFrame { targetWindowFrame = f }
                 SwapAnimationController.shared.updateTargetHighlight(frame: f, windowID: currentID, isCovered: covered)
+                
+                // Update access time to keep it fresh
+                if var state = storedTargets[currentID] {
+                    state.lastAccessDate = Date()
+                    storedTargets[currentID] = state
+                }
+                
                 currentTargetStillValid = true
             }
         }
@@ -228,11 +239,12 @@ class AppState: ObservableObject {
         }
         
         // B. Current target not valid/visible -> Scan stored targets
+        var candidates: [(id: CGWindowID, element: AXUIElement, frame: CGRect, covered: Bool, date: Date)] = []
         var foundNewTargetKey: CGWindowID? = nil
         var foundNewTargetElement: AXUIElement? = nil
         var foundNewFrame: CGRect? = nil
         var foundNewCovered = false
-        
+
         // Iterate dictionary
         for (id, state) in storedTargets {
             // Skip the one we just checked (if any)
@@ -240,14 +252,18 @@ class AppState: ObservableObject {
             
             let (visible, frame, covered) = checkCandidate(state.element, id: id)
             if visible, let f = frame {
-                print("DEBUG: Found visible stored target ID \(id) on this Space. Activating.")
-                
-                foundNewTargetKey = id
-                foundNewTargetElement = state.element
-                foundNewFrame = f
-                foundNewCovered = covered
-                break
+                candidates.append((id, state.element, f, covered, state.lastAccessDate))
             }
+        }
+        
+        // Sort by last access date (newest first)
+        if let bestMatch = candidates.sorted(by: { $0.date > $1.date }).first {
+            print("DEBUG: Found visible stored target ID \(bestMatch.id) (Date: \(bestMatch.date)). Activating.")
+            
+            foundNewTargetKey = bestMatch.id
+            foundNewTargetElement = bestMatch.element
+            foundNewFrame = bestMatch.frame
+            foundNewCovered = bestMatch.covered
         }
         
         if let newElement = foundNewTargetElement, let newID = foundNewTargetKey, let f = foundNewFrame {
