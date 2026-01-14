@@ -168,7 +168,7 @@ class AppState: ObservableObject {
             
             // Check visibility state (covers Ghosting/Spaces handling)
             let highlightID = SwapAnimationController.shared.highlightWindowID
-            let visibility = AccessibilityService.shared.checkWindowVisibility(element: window, excludeWindowID: highlightID)
+            let visibility = WindowVisibilityService.shared.checkWindowVisibility(element: window, excludeWindowID: highlightID)
             
             // Should be visible since we just clicked it, but good to run logic
             switch visibility {
@@ -206,7 +206,7 @@ class AppState: ObservableObject {
         // Helper to validate a candidate
         func checkCandidate(_ element: AXUIElement, id: CGWindowID) -> (isVisible: Bool, frame: CGRect?, isCovered: Bool) {
             guard let frame = AccessibilityService.shared.getWindowFrame(element: element) else { return (false, nil, false) }
-            let state = AccessibilityService.shared.checkWindowVisibility(element: element, excludeWindowID: highlightID)
+            let state = WindowVisibilityService.shared.checkWindowVisibility(element: element, excludeWindowID: highlightID)
             return (state != .notOnScreen, frame, state == .covered)
         }
         

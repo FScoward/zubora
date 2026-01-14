@@ -6,8 +6,19 @@ import QuartzCore
 class SwapAnimationController {
     static let shared = SwapAnimationController()
     
+    // MARK: - Constants
+    private struct Constants {
+        static let animationDuration: CFTimeInterval = 0.6
+        static let rainbowLayerName = "RainbowTargetLayer"
+        static let selectionLayerName = "SelectionLayer"
+        static let defaultBorderWidth: CGFloat = 3
+        static let selectionBorderWidth: CGFloat = 6
+        static let cornerRadius: CGFloat = 8
+    }
+    
     private var animationWindows: [NSPanel] = []
-    private let animationDuration: CFTimeInterval = 0.6 // Increased duration for better visibility
+    
+    // MARK: - Swap Feedback Animation
     
     /// Rich animation - shows glowing borders and sparkles at target positions
     func showSwapFeedback(
@@ -29,7 +40,7 @@ class SwapAnimationController {
         
         // Animate: Pop in, then fade out
         CATransaction.begin()
-        CATransaction.setAnimationDuration(animationDuration)
+        CATransaction.setAnimationDuration(Constants.animationDuration)
         CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut))
         CATransaction.setCompletionBlock {
             self.clearAnimationWindows()
@@ -43,7 +54,7 @@ class SwapAnimationController {
             let fadeOut = CABasicAnimation(keyPath: "opacity")
             fadeOut.fromValue = 1.0
             fadeOut.toValue = 0.0
-            fadeOut.duration = animationDuration
+            fadeOut.duration = Constants.animationDuration
             fadeOut.fillMode = .forwards
             fadeOut.isRemovedOnCompletion = false
             
@@ -53,7 +64,7 @@ class SwapAnimationController {
             let scaleAnim = CAKeyframeAnimation(keyPath: "transform.scale")
             scaleAnim.values = [0.9, 1.05, 1.0]
             scaleAnim.keyTimes = [0, 0.4, 1.0]
-            scaleAnim.duration = animationDuration
+            scaleAnim.duration = Constants.animationDuration
             
             layer.add(scaleAnim, forKey: "pop")
         }
@@ -69,32 +80,16 @@ class SwapAnimationController {
     }
     
     private func createAnimationPanel(for frame: CGRect, color: NSColor) -> NSPanel {
-        // Find the screen that contains this frame (or closest to it)
-        // Note: We use global coordinates, so we just need to convert to Cocoa's bottom-left origin
-        // But since we are creating a window exactly at 'frame', we just need to flip Y.
-        
         let screenHeight = NSScreen.screens.first?.frame.height ?? 0
         let nsFrame = convertToNSFrame(frame: frame, screenHeight: screenHeight)
         
-        let panel = NSPanel(
-            contentRect: nsFrame,
-            styleMask: [.borderless, .nonactivatingPanel],
-            backing: .buffered,
-            defer: false
+        let panel = createTransparentPanel(
+            frame: nsFrame,
+            level: .init(Int(CGWindowLevelKey.floatingWindow.rawValue) + 1),
+            collectionBehavior: [.transient, .ignoresCycle]
         )
-        panel.backgroundColor = .clear
-        panel.isOpaque = false
-        panel.hasShadow = false
-        panel.level = .init(Int(CGWindowLevelKey.floatingWindow.rawValue) + 1)
-        panel.ignoresMouseEvents = true
-        panel.collectionBehavior = [.transient, .ignoresCycle] // Allow disjoint spaces
         
-        let contentView = NSView(frame: NSRect(origin: .zero, size: nsFrame.size))
-        contentView.wantsLayer = true
-        contentView.layer?.backgroundColor = .clear
-        panel.contentView = contentView
-        
-        guard let rootLayer = contentView.layer else { return panel }
+        guard let contentView = panel.contentView, let rootLayer = contentView.layer else { return panel }
         
         // Create GLOWING border layers
         let border = createBorderLayer(frame: contentView.bounds, color: color)
@@ -106,10 +101,6 @@ class SwapAnimationController {
         
         return panel
     }
-
-    private let RainbowLayerName = "RainbowTargetLayer"
-
-    // MARK: - Persistent Target Highlight
     
     // MARK: - Persistent Target Highlight
     
@@ -122,7 +113,7 @@ class SwapAnimationController {
         targetHighlightWindow.map { CGWindowID($0.windowNumber) }
     }
     
-    // NOTE: Space observation is now handled by polling in AppState via AccessibilityService.checkWindowVisibility
+    // NOTE: Space observation is now handled by polling in AppState via WindowVisibilityService.checkWindowVisibility
     
     func hideTargetHighlight() {
         guard let window = targetHighlightWindow else { return }
@@ -144,24 +135,11 @@ class SwapAnimationController {
         if let existingWin = targetHighlightWindow {
             window = existingWin
         } else {
-            let panel = NSPanel(
-                contentRect: nsFrame,
-                styleMask: [.borderless, .nonactivatingPanel],
-                backing: .buffered,
-                defer: false
+            let panel = createTransparentPanel(
+                frame: nsFrame,
+                level: .popUpMenu,
+                collectionBehavior: [.transient, .ignoresCycle, .moveToActiveSpace]
             )
-            panel.backgroundColor = .clear
-            panel.isOpaque = false
-            panel.hasShadow = false
-            panel.level = .popUpMenu // Elevated level
-            panel.ignoresMouseEvents = true
-            panel.collectionBehavior = [.transient, .ignoresCycle, .moveToActiveSpace]
-            
-            let contentView = NSView(frame: nsFrame)
-            contentView.wantsLayer = true
-            contentView.layer?.backgroundColor = .clear
-            panel.contentView = contentView
-            
             self.targetHighlightWindow = panel
             window = panel
             panel.orderFront(nil)
@@ -204,7 +182,7 @@ class SwapAnimationController {
         if let sublayers = rootLayer.sublayers {
              // Safe cleanup: Iterate reversed to remove items while looping
              for layer in sublayers.reversed() {
-                 if layer.name == RainbowLayerName {
+                 if layer.name == Constants.rainbowLayerName {
                      foundRainbow = layer
                  } else {
                      // Remove artifacts (blue borders, old sparkles, etc)
@@ -219,7 +197,7 @@ class SwapAnimationController {
             
             // Update Mask Path
             if let mask = container.mask as? CAShapeLayer {
-                let path = CGPath(roundedRect: bounds, cornerWidth: 8, cornerHeight: 8, transform: nil)
+                let path = CGPath(roundedRect: bounds, cornerWidth: Constants.cornerRadius, cornerHeight: Constants.cornerRadius, transform: nil)
                 mask.path = path
             }
             
@@ -237,7 +215,7 @@ class SwapAnimationController {
         } else {
             // Create new layer
             let rainbow = createRainbowBorder(bounds: bounds)
-            rainbow.name = RainbowLayerName
+            rainbow.name = Constants.rainbowLayerName
             rootLayer.addSublayer(rainbow)
             self.rainbowLayer = rainbow
         }
@@ -260,14 +238,10 @@ class SwapAnimationController {
     // MARK: - Selection Highlight (Temporary)
     
     private var selectionHighlightWindow: NSPanel?
-    private let SelectionLayerName = "SelectionLayer"
     
     func updateSelectionHighlight(frame: CGRect) {
-        print("DEBUG: updateSelectionHighlight called with frame: \(frame)")
-        guard let screen = NSScreen.screens.first else {
-            print("DEBUG: No screen found")
-            return
-        }
+        // print("DEBUG: updateSelectionHighlight called with frame: \(frame)")
+        guard let screen = NSScreen.screens.first else { return }
         let screenHeight = screen.frame.height
         let nsFrame = convertToNSFrame(frame: frame, screenHeight: screenHeight)
         
@@ -276,26 +250,12 @@ class SwapAnimationController {
         if let existingWin = selectionHighlightWindow {
             window = existingWin
         } else {
-            print("DEBUG: Creating new selection highlight window")
-            let panel = NSPanel(
-                contentRect: nsFrame,
-                styleMask: [.borderless, .nonactivatingPanel],
-                backing: .buffered,
-                defer: false
+            let panel = createTransparentPanel(
+                frame: nsFrame,
+                level: .popUpMenu,
+                collectionBehavior: [.transient, .ignoresCycle, .moveToActiveSpace]
             )
-            panel.backgroundColor = .clear
-            panel.isOpaque = false
-            panel.hasShadow = false
-            panel.level = .popUpMenu // Higher level to ensure it stays on top
             panel.hidesOnDeactivate = false // Prevent hiding when other apps activate
-            panel.ignoresMouseEvents = true
-            panel.collectionBehavior = [.transient, .ignoresCycle, .moveToActiveSpace]
-            
-            let contentView = NSView(frame: nsFrame)
-            contentView.wantsLayer = true
-            contentView.layer?.backgroundColor = .clear
-            panel.contentView = contentView
-            
             self.selectionHighlightWindow = panel
             window = panel
             panel.orderFront(nil)
@@ -313,13 +273,13 @@ class SwapAnimationController {
         // Update Layer
         guard let rootLayer = window.contentView?.layer else { return }
         
-        if rootLayer.sublayers?.first(where: { $0.name == SelectionLayerName }) == nil {
+        if rootLayer.sublayers?.first(where: { $0.name == Constants.selectionLayerName }) == nil {
             // Create Selection Border
             let border = createBorderLayer(frame: NSRect(origin: .zero, size: nsFrame.size), color: NSColor.systemYellow)
-            border.borderWidth = 6 // Thicker for visibility
-            border.name = SelectionLayerName
+            border.borderWidth = Constants.selectionBorderWidth
+            border.name = Constants.selectionLayerName
             rootLayer.sublayers = [border] // Replace all
-        } else if let border = rootLayer.sublayers?.first(where: { $0.name == SelectionLayerName }) {
+        } else if let border = rootLayer.sublayers?.first(where: { $0.name == Constants.selectionLayerName }) {
             // Update frame
             border.frame = NSRect(origin: .zero, size: nsFrame.size)
         }
@@ -334,14 +294,36 @@ class SwapAnimationController {
 
     // MARK: - Effect Helpers
     
+    private func createTransparentPanel(frame: NSRect, level: NSWindow.Level, collectionBehavior: NSWindow.CollectionBehavior) -> NSPanel {
+        let panel = NSPanel(
+            contentRect: frame,
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        panel.backgroundColor = .clear
+        panel.isOpaque = false
+        panel.hasShadow = false
+        panel.level = level
+        panel.ignoresMouseEvents = true
+        panel.collectionBehavior = collectionBehavior
+        
+        let contentView = NSView(frame: NSRect(origin: .zero, size: frame.size))
+        contentView.wantsLayer = true
+        contentView.layer?.backgroundColor = .clear
+        panel.contentView = contentView
+        
+        return panel
+    }
+    
     private func createRainbowBorder(bounds: NSRect) -> CALayer {
         let container = CALayer()
         container.frame = bounds
-        container.name = RainbowLayerName
+        container.name = Constants.rainbowLayerName
         
         // Mask for the border
         let mask = CAShapeLayer()
-        let path = CGPath(roundedRect: bounds, cornerWidth: 8, cornerHeight: 8, transform: nil)
+        let path = CGPath(roundedRect: bounds, cornerWidth: Constants.cornerRadius, cornerHeight: Constants.cornerRadius, transform: nil)
         mask.path = path
         mask.fillColor = nil
         mask.strokeColor = NSColor.black.cgColor // Opaque for mask
@@ -349,7 +331,6 @@ class SwapAnimationController {
         container.mask = mask
         
         // Rotating Gradient
-        // Make it large enough to cover the bounds when rotated
         let dimension = max(bounds.width, bounds.height) * 2.0
         let gradient = CAGradientLayer()
         gradient.type = .conic
@@ -371,7 +352,7 @@ class SwapAnimationController {
             height: dimension
         )
         gradient.startPoint = CGPoint(x: 0.5, y: 0.5)
-        gradient.endPoint = CGPoint(x: 0.5, y: 1.0) // Not strictly used for conic usually, but good practice
+        gradient.endPoint = CGPoint(x: 0.5, y: 1.0)
         
         // Rotate Animation
         let rotation = CABasicAnimation(keyPath: "transform.rotation.z")
@@ -391,8 +372,8 @@ class SwapAnimationController {
         layer.frame = frame
         layer.backgroundColor = NSColor.clear.cgColor
         layer.borderColor = color.cgColor
-        layer.borderWidth = 3
-        layer.cornerRadius = 8
+        layer.borderWidth = Constants.defaultBorderWidth
+        layer.cornerRadius = Constants.cornerRadius
         
         // Glow Effect
         layer.shadowColor = color.cgColor
@@ -402,8 +383,6 @@ class SwapAnimationController {
         
         return layer
     }
-    
-
     
     /// Creates a "burst" sparkle emitter for swap feedback
     private func createSparkleEmitter(frame: NSRect, color: CGColor) -> CAEmitterLayer {
@@ -416,8 +395,6 @@ class SwapAnimationController {
         
         let cell = CAEmitterCell()
         // Burst settings: high velocity, short life, moderate count
-        cell.birthRate = 0 // We will use pulse or just set a static rate for the short duration of the panel
-        // Actually for a short animation window, constant emission is fine.
         cell.birthRate = 200
         cell.lifetime = 0.6
         cell.lifetimeRange = 0.2

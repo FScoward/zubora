@@ -143,7 +143,7 @@ class EventManager: ObservableObject {
             isSwitching = true
             
             // 1. Populate switchable windows first
-        switchableWindows = AccessibilityService.shared.getVisibleWindows()
+        switchableWindows = WindowDiscoveryService.shared.getVisibleWindows()
         
         print("DEBUG: --- Switchable Windows List ---")
         let myPID = NSRunningApplication.current.processIdentifier
