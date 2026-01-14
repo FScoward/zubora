@@ -51,6 +51,7 @@ swift build -c release
 
 ## 注意事項
 - 初回起動時、**アクセシビリティ権限**と**画面収録権限**（ウィンドウ情報の取得に必要）の許可を求められます。システム設定で許可を与えてください。
+- **アップデート時の注意**: 本アプリはApple Developer IDで署名されていません。そのため、アプリをアップデートする（新しいバージョンに置き換える）たびに、macOSのセキュリティ仕様により権限設定がリセットされます。アップデート後は、システム設定から既存の権限設定を一度削除（-ボタン）し、再度追加・許可を行ってください。
 
 ---
 
@@ -107,3 +108,4 @@ swift build -c release
 
 ## Notes
 - On first launch, you will be asked to grant **Accessibility permissions** and **Screen Recording permissions** (required to get window information). Please grant these permissions in System Settings.
+- **Note on Updates**: Since this app is not signed with an Apple Developer ID, permission settings will be reset by macOS security policies every time you update the app. After updating, please remove the existing permission entry (using the "-" button) in System Settings and re-add/grant permissions again.
