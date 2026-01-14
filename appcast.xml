@@ -3,12 +3,12 @@
     <channel>
         <title>Zubora</title>
         <item>
-            <title>0.1.0-beta.4</title>
-            <pubDate>Tue, 13 Jan 2026 16:25:40 +0000</pubDate>
-            <sparkle:version>1</sparkle:version>
-            <sparkle:shortVersionString>0.1.0-beta.4</sparkle:shortVersionString>
+            <title>0.1.0-beta.6</title>
+            <pubDate>Wed, 14 Jan 2026 15:57:58 +0000</pubDate>
+            <sparkle:version>2</sparkle:version>
+            <sparkle:shortVersionString>0.1.0-beta.6</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/FScoward/zubora/releases/download/v0.1.0-beta.5/Zubora.zip" length="5327761" type="application/octet-stream" sparkle:edSignature="C9d69Ccm/L0de+LjxBzkINIoUWupiQtDvUs9nCcQtLHYs1yMwJy5f6FP6FPtGsMeKXHa9TJVxSlck5qNBhAbDA=="/>
+            <enclosure url="https://github.com/FScoward/zubora/releases/download/v0.1.0-beta.6/Zubora.zip" length="5362800" type="application/octet-stream" sparkle:edSignature="8221ydyv7MhKSsGuLy8Vlrrl5G7dBVrMp0Rp3rZVH64MGMrnSdnYjp7T9HNTrTm62Bssf5X+D0nuMVxsc9d0BA=="/>
         </item>
     </channel>
 </rss>
