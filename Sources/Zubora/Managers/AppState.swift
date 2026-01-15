@@ -393,27 +393,51 @@ class AppState: ObservableObject {
         }
         
         
+        // Capture ID BEFORE swap to avoid race conditions with CGWindowList updates
+        // If we can't get the ID now, we probably can't get it later either.
+        guard let otherID = AccessibilityService.shared.getWindowID(element: other) else {
+            print("ERROR: Could not get ID for swap partner. Aborting swap to prevent state corruption.")
+            return
+        }
+        
         // Closure to perform the actual window move
         let moveWindows = { [self] in
             print("DEBUG: Setting frames...")
             let oldState = targetWindowID.flatMap { storedTargets[$0] }
+            var swapSuccessful = true
             
             if swapMode == .swapAll {
                 print("DEBUG: Setting Target Frame to \(newTargetFrame)")
-                AccessibilityService.shared.setWindowFrame(element: target, frame: newTargetFrame)
+                if !AccessibilityService.shared.setWindowFrame(element: target, frame: newTargetFrame) {
+                    print("ERROR: Failed to set frame for Target Window")
+                    swapSuccessful = false
+                }
                 print("DEBUG: Setting Other Frame to \(newOtherFrame)")
-                AccessibilityService.shared.setWindowFrame(element: other, frame: newOtherFrame)
+                if !AccessibilityService.shared.setWindowFrame(element: other, frame: newOtherFrame) {
+                    print("ERROR: Failed to set frame for Other Window")
+                    swapSuccessful = false
+                }
             } else {
                 print("DEBUG: Setting Target Position to \(newTargetFrame.origin)")
-                AccessibilityService.shared.setWindowPosition(element: target, position: newTargetFrame.origin)
+                if !AccessibilityService.shared.setWindowPosition(element: target, position: newTargetFrame.origin) {
+                    print("ERROR: Failed to set position for Target Window")
+                    swapSuccessful = false
+                }
                 print("DEBUG: Setting Other Position to \(newOtherFrame.origin)")
-                AccessibilityService.shared.setWindowPosition(element: other, position: newOtherFrame.origin)
+                if !AccessibilityService.shared.setWindowPosition(element: other, position: newOtherFrame.origin) {
+                    print("ERROR: Failed to set position for Other Window")
+                    swapSuccessful = false
+                }
             }
-            print("DEBUG: Frames set.")
+            print("DEBUG: Frames set. Success: \(swapSuccessful)")
             
-            // The window that moved INTO the target position becomes the new target
-            if let newID = AccessibilityService.shared.getWindowID(element: other) {
-                updateNewTargetState(newElement: other, newID: newID, oldState: oldState)
+            if swapSuccessful {
+                // The window that moved INTO the target position becomes the new target
+                // Use the PRE-CAPTURED ID to ensure reliability
+                updateNewTargetState(newElement: other, newID: otherID, oldState: oldState)
+            } else {
+                print("WARNING: Swap failed/partial. NOT updating target state to prevent corruption.")
+                // TODO: Consider rollback logic here if needed
             }
             
             // Resume frame tracking
@@ -506,8 +530,8 @@ class AppState: ObservableObject {
             let res = AccessibilityService.shared.setWindowFrame(element: origTargetElement, frame: originalTargetDestination)
             print("  - Moved Original Target (A): \(res ? "Success" : "Failed")")
         } else {
-            AccessibilityService.shared.setWindowPosition(element: origTargetElement, position: originalTargetDestination.origin)
-            print("  - Moved Original Target (A) (Pos)")
+            let res = AccessibilityService.shared.setWindowPosition(element: origTargetElement, position: originalTargetDestination.origin)
+            print("  - Moved Original Target (A) (Pos): \(res ? "Success" : "Failed")")
         }
         
         // 2. Move B -> posB (Only if B != A)
@@ -516,8 +540,8 @@ class AppState: ObservableObject {
                 let res = AccessibilityService.shared.setWindowFrame(element: currentTarget, frame: currentTargetDestination)
                 print("  - Moved Current Target (B): \(res ? "Success" : "Failed")")
             } else {
-                AccessibilityService.shared.setWindowPosition(element: currentTarget, position: currentTargetDestination.origin)
-                print("  - Moved Current Target (B) (Pos)")
+                let res = AccessibilityService.shared.setWindowPosition(element: currentTarget, position: currentTargetDestination.origin)
+                print("  - Moved Current Target (B) (Pos): \(res ? "Success" : "Failed")")
             }
         }
         
@@ -526,8 +550,8 @@ class AppState: ObservableObject {
             let res = AccessibilityService.shared.setWindowFrame(element: newWindow, frame: newWindowDestination)
             print("  - Moved New Window (C): \(res ? "Success" : "Failed")")
         } else {
-            AccessibilityService.shared.setWindowPosition(element: newWindow, position: newWindowDestination.origin)
-            print("  - Moved New Window (C) (Pos)")
+            let res = AccessibilityService.shared.setWindowPosition(element: newWindow, position: newWindowDestination.origin)
+            print("  - Moved New Window (C) (Pos): \(res ? "Success" : "Failed")")
         }
         
         

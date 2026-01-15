@@ -124,16 +124,17 @@ class AccessibilityService {
                             abs(originalFrame.size.height - frame.size.height) >= threshold
         
         // Silica pattern: Size → Position → Size (no delays!)
+        var success = true
         if shouldSetSize {
-            setSize(element, frame.size)
+            if !setSize(element, frame.size) { success = false }
         }
         
         if originalFrame.origin != frame.origin {
-            setPosition(element, frame.origin)
+            if !setPosition(element, frame.origin) { success = false }
         }
         
         if shouldSetSize {
-            setSize(element, frame.size)
+            if !setSize(element, frame.size) { success = false }
         }
         
         // Restore AXEnhancedUserInterface
@@ -141,7 +142,7 @@ class AccessibilityService {
             enableEnhancedUserInterface(app: app)
         }
         
-        return true
+        return success
     }
     
     // MARK: - Enhanced UI Interface Control
@@ -171,24 +172,36 @@ class AccessibilityService {
         AXUIElementSetAttributeValue(app, "AXEnhancedUserInterface" as CFString, kCFBooleanTrue)
     }
     
-    func setWindowPosition(element: AXUIElement, position: CGPoint) {
+    func setWindowPosition(element: AXUIElement, position: CGPoint) -> Bool {
         setPosition(element, position)
     }
     
-    private func setSize(_ element: AXUIElement, _ size: CGSize) {
+    @discardableResult
+    private func setSize(_ element: AXUIElement, _ size: CGSize) -> Bool {
         var sizeVal = size
         if let value = AXValueCreate(.cgSize, &sizeVal) {
              let err = AXUIElementSetAttributeValue(element, kAXSizeAttribute as CFString, value)
-             if err != .success { print("Failed to set Size: \(err.rawValue)") }
+             if err != .success {
+                 print("Failed to set Size: \(err.rawValue)")
+                 return false
+             }
+             return true
         }
+        return false
     }
     
-    private func setPosition(_ element: AXUIElement, _ point: CGPoint) {
+    @discardableResult
+    private func setPosition(_ element: AXUIElement, _ point: CGPoint) -> Bool {
         var pointVal = point
         if let value = AXValueCreate(.cgPoint, &pointVal) {
              let err = AXUIElementSetAttributeValue(element, kAXPositionAttribute as CFString, value)
-             if err != .success { print("Failed to set Position: \(err.rawValue)") }
+             if err != .success {
+                 print("Failed to set Position: \(err.rawValue)")
+                 return false
+             }
+             return true
         }
+        return false
     }
     
     func getTitle(element: AXUIElement) -> String {
