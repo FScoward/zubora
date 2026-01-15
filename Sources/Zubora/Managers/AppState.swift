@@ -77,6 +77,14 @@ class AppState: ObservableObject {
     // MARK: - Target State Helpers
     
     private func updateNewTargetState(newElement: AXUIElement, newID: CGWindowID, oldState: TargetState?) {
+        // Fix for "Ghost Target" bug:
+        // Remove the old target ID from storage. If we don't, and the new target's visibility check
+        // flakily fails (e.g. lag), the app will find this old ID (which is visible) and switch back to it.
+        if let oldID = targetWindowID, oldID != newID {
+            storedTargets.removeValue(forKey: oldID)
+            print("DEBUG: Removed old target ID \(oldID) from storage to prevent ghosting.")
+        }
+        
         self.targetElement = newElement
         self.targetWindowID = newID
         
