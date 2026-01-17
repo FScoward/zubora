@@ -72,6 +72,10 @@ class AppState: ObservableObject {
         set { if let id = targetWindowID { storedTargets[id]?.swapChain = newValue } }
     }
     
+    // Debounce counter for target visibility check
+    private var missingTargetFrames: Int = 0
+    private let missingTargetThreshold = 10 // approx 0.5s at 0.05s interval
+    
     private var frameUpdateTimer: Timer?
     
     // MARK: - Target State Helpers
@@ -228,6 +232,9 @@ class AppState: ObservableObject {
             let (visible, frame, covered) = checkCandidate(current, id: currentID)
             
             if visible, let f = frame {
+                // Target is definitely visible, reset debounce counter
+                missingTargetFrames = 0
+                
                 // Update State
                 if f != targetWindowFrame { targetWindowFrame = f }
                 SwapAnimationController.shared.updateTargetHighlight(frame: f, windowID: currentID, isCovered: covered)
@@ -245,6 +252,20 @@ class AppState: ObservableObject {
         if currentTargetStillValid {
             return
         }
+        
+        // Target not found this frame.
+        // Increment debounce counter.
+        missingTargetFrames += 1
+        
+        // If we haven't reached the threshold, PRETEND the target is still there (don't switch yet).
+        // This handles short glitches (e.g. window minimizing animation, or just API lag).
+        if missingTargetFrames < missingTargetThreshold {
+            // print("DEBUG: Target missing for \(missingTargetFrames) frames. Holding...")
+            return
+        }
+        
+        print("DEBUG: Target missing for \(missingTargetFrames) frames. Threshold reached. Scanning for new targets.")
+        missingTargetFrames = 0 // Reset for next time
         
         // B. Current target not valid/visible -> Scan stored targets
         var candidates: [(id: CGWindowID, element: AXUIElement, frame: CGRect, covered: Bool, date: Date)] = []
