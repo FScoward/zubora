@@ -19,6 +19,10 @@ struct TargetState {
     var originalTargetFrame: CGRect?
     var swapChain: [(element: AXUIElement, originalFrame: CGRect)]
     var lastAccessDate: Date
+    
+    // Zoom State
+    var isZoomed: Bool = false
+    var preZoomFrame: CGRect?
 }
 
 @MainActor
@@ -101,7 +105,9 @@ class AppState: ObservableObject {
                 originalTargetElement: old.originalTargetElement,
                 originalTargetFrame: old.originalTargetFrame,
                 swapChain: old.swapChain,
-                lastAccessDate: Date()
+                lastAccessDate: Date(),
+                isZoomed: old.isZoomed,
+                preZoomFrame: old.preZoomFrame
             )
             
             self.storedTargets[newID] = newState
@@ -116,7 +122,9 @@ class AppState: ObservableObject {
                     originalTargetElement: newElement,
                     originalTargetFrame: AccessibilityService.shared.getWindowFrame(element: newElement),
                     swapChain: [],
-                    lastAccessDate: Date()
+                    lastAccessDate: Date(),
+                    isZoomed: false,
+                    preZoomFrame: nil
                 )
             }
         }
@@ -169,7 +177,9 @@ class AppState: ObservableObject {
             originalTargetElement: window,
             originalTargetFrame: frame,
             swapChain: [],
-            lastAccessDate: Date()
+            lastAccessDate: Date(),
+            isZoomed: false,
+            preZoomFrame: nil
         )
         
         storedTargets[windowID] = state
@@ -607,5 +617,47 @@ class AppState: ObservableObject {
         ) {
             print("DEBUG: Rotation visual feedback complete")
         }
+    }
+    
+    // MARK: - Zooming
+    
+    func zoomTargetWindow() {
+        guard let target = targetElement, let windowID = targetWindowID else {
+            print("No target to zoom")
+            return
+        }
+        
+        // Pausing frame tracking to avoid fighting with the move
+        stopFrameTracking()
+        defer { startFrameTracking() }
+        
+        var currentState = storedTargets[windowID]
+        
+        if currentState?.isZoomed == true, let preZoomFrame = currentState?.preZoomFrame {
+            // Restore Original Frame
+            print("Restoring pre-zoom frame: \(preZoomFrame)")
+            AccessibilityService.shared.setWindowFrame(element: target, frame: preZoomFrame)
+            
+            currentState?.isZoomed = false
+            currentState?.preZoomFrame = nil
+        } else {
+            // Zoom In
+            guard let currentFrame = AccessibilityService.shared.getWindowFrame(element: target) else { return }
+            
+            // Save current frame before zooming
+            currentState?.preZoomFrame = currentFrame
+            currentState?.isZoomed = true
+            
+            print("Zooming target. Saved pre-zoom frame: \(currentFrame)")
+            AccessibilityService.shared.zoomWindow(element: target)
+        }
+        
+        // Update storage
+        if let updatedState = currentState {
+            storedTargets[windowID] = updatedState
+        }
+        
+        // Update frame tracking immediately
+        updateTargetFrame()
     }
 }

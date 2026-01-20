@@ -307,4 +307,39 @@ class AccessibilityService {
             print("DEBUG: Window MaxSize = \(maxSize)")
         }
     }
+
+    // MARK: - Zooming
+    
+    func zoomWindow(element: AXUIElement) {
+        guard let currentFrame = getWindowFrame(element: element) else { return }
+        
+        // Find screen that contains the majority of the window
+        // Default to main screen if none found
+        var bestScreen = NSScreen.main
+        var maxIntersection: CGFloat = 0
+        
+        for screen in NSScreen.screens {
+            let intersection = currentFrame.intersection(screen.frame)
+            let area = intersection.width * intersection.height
+            if area > maxIntersection {
+                maxIntersection = area
+                bestScreen = screen
+            }
+        }
+        
+        guard let screen = bestScreen else { return }
+        
+        // Calculate 80% size
+        let visibleFrame = screen.visibleFrame
+        let newWidth = visibleFrame.width * 0.8
+        let newHeight = visibleFrame.height * 0.8
+        
+        // Center it
+        let newX = visibleFrame.origin.x + (visibleFrame.width - newWidth) / 2
+        let newY = visibleFrame.origin.y + (visibleFrame.height - newHeight) / 2
+        
+        let newFrame = CGRect(x: newX, y: newY, width: newWidth, height: newHeight)
+        
+        setWindowFrame(element: element, frame: newFrame)
+    }
 }

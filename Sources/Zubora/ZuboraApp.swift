@@ -42,6 +42,13 @@ struct ZuboraApp: App {
             
             Divider()
             
+            Button("Zoom Target (80%)") {
+                appState.zoomTargetWindow()
+            }
+            .disabled(!appState.isTargetRegistered)
+            
+            Divider()
+            
             Button("Check for Updates...") {
                 UpdateManager.shared.checkForUpdates()
             }

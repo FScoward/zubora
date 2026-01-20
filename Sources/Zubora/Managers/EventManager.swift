@@ -76,6 +76,17 @@ class EventManager: ObservableObject {
                 
                 if type == .keyDown {
                     let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
+                    
+                    // Option + Z (KeyCode 6)
+                    if keyCode == 6 && event.flags.contains(.maskAlternate) {
+                        print("Option+Z detected (Zoom Toggle)")
+                        Task { @MainActor in
+                            AppState.shared.zoomTargetWindow()
+                        }
+                        // Swallow event
+                        return nil
+                    }
+
                     // Tab: 48
                     // Check for Control + Option
                     if keyCode == 48 && event.flags.contains(.maskAlternate) && event.flags.contains(.maskControl) {
